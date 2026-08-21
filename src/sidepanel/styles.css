@@ -236,6 +236,51 @@ select {
   font-size: 13px;
 }
 
+.eanLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.eanLinks a {
+  color: #1769e0;
+  overflow-wrap: anywhere;
+}
+
+.priceComparison {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border-radius: 7px;
+  background: #f5f8ff;
+  padding: 9px;
+}
+
+.eanSummary {
+  color: #44514a;
+  font-size: 12px;
+}
+
+.priceButton {
+  justify-self: start;
+  border: 0;
+  border-radius: 6px;
+  background: #1769e0;
+  color: #fff;
+  padding: 7px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.priceButton:disabled { opacity: .65; cursor: wait; }
+.priceResults { display: grid; gap: 6px; }
+.priceResult { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #dbe4f2; padding-top: 6px; font-size: 12px; }
+.priceResult div { display: grid; gap: 2px; }
+.priceResult span, .priceResult small { color: #52605a; }
+.priceResult a { align-self: center; color: #1769e0; }
+
 .valueSummary {
   display: grid;
   gap: 3px;

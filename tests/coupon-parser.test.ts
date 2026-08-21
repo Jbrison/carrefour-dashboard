@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import fixture from "./fixtures/carrefour-coupons.html?raw"
-import { parseCoupon, parseDiscount } from "../src/content/coupon-parser"
+import { extractEans, parseCoupon, parseDiscount } from "../src/content/coupon-parser"
 
 describe("parseDiscount", () => {
   it("parses percent and amount discounts", () => {
@@ -35,5 +35,16 @@ describe("parseCoupon", () => {
     expect(coupon?.title).toContain("Nutella Biscuits")
     expect(coupon?.title).not.toContain("0,60 €")
     expect(coupon?.imageUrl).toBe("https://example.test/nutella.png")
+  })
+})
+
+describe("extractEans", () => {
+  it("extracts valid unique EAN-13 codes from offer conditions", () => {
+    const text = "Réduction valable pour les produits 8001665725750, 8001665726542 et 8001665725750."
+    expect(extractEans(text)).toEqual(["8001665725750", "8001665726542"])
+  })
+
+  it("rejects arbitrary 13 digit numbers with an invalid check digit", () => {
+    expect(extractEans("Produit 8001665725751")).toEqual([])
   })
 })

@@ -22,10 +22,22 @@ export function parseCoupon(element: HTMLElement): CarrefourCoupon | null {
     discountValue: discount?.discountValue,
     discountType: discount?.discountType,
     conditions: extractConditions(element, rawText),
+    eans: extractEans(rawText),
     expirationDate,
     imageUrl: extractImageUrl(element),
     rawText
   }
+}
+
+export function extractEans(text: string): string[] {
+  return Array.from(new Set(text.match(/\b\d{13}\b/g) ?? [])).filter(isValidEan13)
+}
+
+function isValidEan13(ean: string): boolean {
+  const digits = [...ean].map(Number)
+  const checkDigit = digits.pop()
+  const sum = digits.reduce((total, digit, index) => total + digit * (index % 2 === 0 ? 1 : 3), 0)
+  return checkDigit === (10 - (sum % 10)) % 10
 }
 
 function extractImageUrl(element: HTMLElement): string | undefined {
@@ -124,6 +136,15 @@ function extractProduct(element: HTMLElement, rawText: string, discountText?: st
 }
 
 function extractConditions(element: HTMLElement, rawText: string): string | undefined {
+  const explicit = extractText(
+    element,
+    "[class*='condition' i]:not(button),[data-testid*='condition' i]:not(button),[data-test*='condition' i]:not(button)"
+  )
+  if (explicit && explicit.length > 20) return explicit
+
+  const offerConditions = rawText.match(/Conditions de l['â€™]offre\s+([\s\S]+)/i)?.[1]
+  if (offerConditions) return cleanText(offerConditions)
+
   if (extractText(element, ".coupon-card__main-paragraph")) return undefined
 
   const line = rawText

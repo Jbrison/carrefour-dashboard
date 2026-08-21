@@ -7,10 +7,23 @@ export interface CarrefourCoupon {
   discountValue?: number
   discountType?: "percent" | "amount" | "other"
   conditions?: string
+  eans?: string[]
   expirationDate?: string
   imageUrl?: string
   rawText: string
   sourceList?: CouponSourceList
+}
+
+export interface CarrefourProductPrice {
+  ean: string
+  name?: string
+  price?: number
+  regularPrice?: number
+  promotional: boolean
+  imageUrl?: string
+  productUrl?: string
+  searchUrl: string
+  status: "found" | "not-found" | "error"
 }
 
 export type CouponSourceList = "purchase" | "discount" | "unknown"

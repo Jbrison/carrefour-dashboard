@@ -2,14 +2,19 @@ import { groupCoupons, computeStats } from "../lib/coupon-grouper"
 import type { CarrefourCoupon, CouponAnalysis } from "../lib/coupon-types"
 import { saveCoupons } from "../storage/coupon-storage"
 import { observeCouponChanges } from "./coupon-observer"
-import { parseCoupon } from "./coupon-parser"
+import { extractEans, parseCoupon } from "./coupon-parser"
 import { CARREFOUR_COUPON_STRATEGIES, COUPON_TEXT_PATTERNS, MAX_COUPON_TEXT_LENGTH, MIN_COUPON_TEXT_LENGTH } from "./selectors"
+import type { CarrefourProductPrice } from "../lib/coupon-types"
+import { carrefourSearchUrl } from "../lib/product-price"
 
 const DEBUG = true
 const BADGE_ID = "carrefour-coupon-optimizer-badge"
 
 let stopObserving: (() => void) | undefined
 let contextInvalidated = false
+let pendingConditionsCard: HTMLElement | undefined
+const revealedConditions = new WeakMap<HTMLElement, { text: string; eans: string[] }>()
+let isCollectingConditions = false
 
 interface FindResult {
   elements: HTMLElement[]
@@ -38,7 +43,17 @@ function findCouponElementsWithStrategy(): FindResult {
 async function scanCoupons(): Promise<CouponAnalysis> {
   assertExtensionContext()
   const { elements, strategy } = findCouponElementsWithStrategy()
-  const coupons = elements.map(parseCoupon).filter((coupon): coupon is CarrefourCoupon => coupon !== null)
+  captureRevealedConditions()
+  const coupons = elements.map((element) => {
+    const coupon = parseCoupon(element)
+    const revealed = revealedConditions.get(element)
+    if (!coupon || !revealed) return coupon
+    return {
+      ...coupon,
+      conditions: revealed.text,
+      eans: Array.from(new Set([...(coupon.eans ?? []), ...revealed.eans]))
+    }
+  }).filter((coupon): coupon is CarrefourCoupon => coupon !== null)
   const groups = groupCoupons(coupons)
   const analysis: CouponAnalysis = {
     coupons,
@@ -58,6 +73,78 @@ async function scanCoupons(): Promise<CouponAnalysis> {
   await saveCoupons(analysis)
   renderBadge(analysis)
   return analysis
+}
+
+function captureRevealedConditions(): void {
+  if (!pendingConditionsCard) return
+  const containers = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog'],dialog,[class*='modal' i],[class*='drawer' i]"))
+  const container = containers.find((candidate) => /conditions de l['â€™]offre/i.test(candidate.innerText || candidate.textContent || ""))
+  if (!container) return
+  const text = (container.innerText || container.textContent || "").replace(/\s+/g, " ").trim()
+  const eans = extractEans(text)
+  if (eans.length === 0) return
+  revealedConditions.set(pendingConditionsCard, { text, eans })
+  pendingConditionsCard = undefined
+}
+
+function registerConditionsClicks(): void {
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>("button,a") : null
+    if (!target || !/conditions/i.test(target.innerText || target.textContent || target.getAttribute("aria-label") || "")) return
+    pendingConditionsCard = findCouponElements().find((element) => element.contains(target))
+  }, true)
+}
+
+async function collectAllConditions(): Promise<void> {
+  if (isCollectingConditions || contextInvalidated) return
+  isCollectingConditions = true
+  try {
+    const cards = findCouponElements()
+    for (const card of cards) {
+      if ((parseCoupon(card)?.eans?.length ?? 0) > 0 || revealedConditions.has(card)) continue
+      const trigger = Array.from(card.querySelectorAll<HTMLElement>("button,a"))
+        .find((element) => /voir\s+les\s+conditions|conditions/i.test(element.innerText || element.textContent || element.getAttribute("aria-label") || ""))
+      if (!trigger) continue
+      pendingConditionsCard = card
+      trigger.click()
+      const dialog = await waitForConditionsDialog(4_000)
+      if (!dialog) {
+        pendingConditionsCard = undefined
+        continue
+      }
+      const text = (dialog.innerText || dialog.textContent || "").replace(/\s+/g, " ").trim()
+      const eans = extractEans(text)
+      if (eans.length > 0) revealedConditions.set(card, { text, eans })
+      pendingConditionsCard = undefined
+      closeConditionsDialog(dialog)
+      await contentDelay(250)
+    }
+    await safeScanCoupons()
+  } finally {
+    isCollectingConditions = false
+  }
+}
+
+async function waitForConditionsDialog(timeoutMs: number): Promise<HTMLElement | undefined> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    const dialog = Array.from(document.querySelectorAll<HTMLElement>("[role='dialog'],dialog,[class*='modal' i],[class*='drawer' i]"))
+      .find((candidate) => /conditions de l['â€™]offre/i.test(candidate.innerText || candidate.textContent || ""))
+    if (dialog) return dialog
+    await contentDelay(100)
+  }
+  return undefined
+}
+
+function closeConditionsDialog(dialog: HTMLElement): void {
+  const close = Array.from(dialog.querySelectorAll<HTMLElement>("button,[role='button']"))
+    .find((element) => /fermer|close/i.test(element.getAttribute("aria-label") || element.getAttribute("title") || element.innerText || ""))
+  if (close) close.click()
+  else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }))
+}
+
+function contentDelay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
 async function safeScanCoupons(): Promise<CouponAnalysis | null> {
@@ -208,15 +295,80 @@ function start(): void {
   registerContextInvalidationFilters()
   if (!isExtensionContextActive()) return
 
-  void safeScanCoupons()
+  registerConditionsClicks()
+  void safeScanCoupons().then(() => collectAllConditions())
   stopObserving = observeCouponChanges(() => {
     void safeScanCoupons()
   })
   registerRuntimeListener()
 }
 
+function startProductReader(): void {
+  let lastSignature = ""
+  let timer: number | undefined
+  const read = () => {
+    const product = readRenderedProduct()
+    if (!product) return
+    const signature = JSON.stringify(product)
+    if (signature === lastSignature) return
+    lastSignature = signature
+    if (isExtensionContextActive()) chrome.runtime.sendMessage({ type: "CARREFOUR_PRICE_RESULT", product }).catch(() => undefined)
+  }
+  const observer = new MutationObserver(() => {
+    window.clearTimeout(timer)
+    timer = window.setTimeout(read, 100)
+  })
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true })
+  read()
+}
+
+function readRenderedProduct(): CarrefourProductPrice | null {
+  const requestedEan = new URL(location.href).searchParams.get("q")?.match(/^\d{13}$/)?.[0]
+    ?? location.pathname.match(/(\d{13})(?:$|[/?#])/)?.[1]
+  if (!requestedEan) return null
+  const pageText = document.body?.innerText || document.body?.textContent || ""
+  if (/nous avons beau chercher,?\s+nous ne trouvons pas de r[ée]sultat pour/i.test(pageText)) {
+    return {
+      ean: requestedEan,
+      promotional: false,
+      searchUrl: carrefourSearchUrl(requestedEan),
+      status: "not-found"
+    }
+  }
+  const card = document.querySelector<HTMLElement>(`article[data-testid="${requestedEan}"]`)
+    ?? document.querySelector<HTMLElement>("article[data-testid]")
+  if (!card) return null
+  const ean = card.dataset.testid?.match(/^\d{13}$/)?.[0] ?? requestedEan
+  const mainPriceText = card.querySelector<HTMLElement>("[data-testid='product-price__amount--main']")?.innerText ?? ""
+  const price = parseRenderedPrice(mainPriceText)
+  if (price === undefined) return null
+  const regularPrice = parseRenderedPrice(
+    card.querySelector<HTMLElement>("[class*='product-price__amount--old'],[class*='product-price__amount--regular'],[class*='product-price__amount--crossed']")?.innerText ?? ""
+  )
+  const link = card.querySelector<HTMLAnchorElement>(`a[href*="${ean}"]`)
+  const image = card.querySelector<HTMLImageElement>("img[src]")
+  return {
+    ean,
+    name: card.querySelector<HTMLElement>(".product-card-title__text")?.innerText.trim(),
+    price,
+    regularPrice,
+    promotional: regularPrice !== undefined && regularPrice > price,
+    imageUrl: image?.src,
+    productUrl: link?.href,
+    searchUrl: carrefourSearchUrl(ean),
+    status: "found"
+  }
+}
+
+function parseRenderedPrice(text: string): number | undefined {
+  const match = text.replace(/\s+/g, "").replace(",", ".").match(/\d+(?:\.\d{1,2})?/)?.[0]
+  const value = match ? Number(match) : NaN
+  return Number.isFinite(value) ? value : undefined
+}
+
 try {
-  start()
+  if (location.pathname.startsWith("/mon-compte/fidelite/mes-coupons")) start()
+  else startProductReader()
 } catch (error) {
   if (isExtensionContextInvalidatedError(error)) {
     handleExtensionContextInvalidated()

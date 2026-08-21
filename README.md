@@ -99,7 +99,11 @@ Permissions Chrome utilisées :
 }
 ```
 
-`storage` sert à conserver les coupons parsés, groupes calculés et préférences UI. `sidePanel` sert à afficher la synthèse. La permission hôte limite le content script à la page coupons Carrefour.
+`storage` sert à conserver les coupons parsés, groupes calculés et préférences UI. `sidePanel` sert à afficher la synthèse. Le content script reste limité à la page coupons ; la permission `https://www.carrefour.fr/*` permet au service worker de rechercher le prix des EAN admissibles dans le catalogue Carrefour.
+
+## EAN et comparaison des prix
+
+Quand l'utilisateur ouvre « Voir les conditions », l'extension associe automatiquement les EAN-13 valides trouvés dans la fenêtre au coupon concerné. Le Side Panel propose ensuite « Comparer les prix Carrefour » et classe les références par prix net après remise. Si une promotion est détectée, le prix de base hors promotion est utilisé car les coupons ne sont pas cumulables avec une offre en cours. Si Carrefour n'expose pas le prix dans la page de recherche, un lien permet de vérifier directement la référence.
 
 ## Limites DOM Carrefour
 
