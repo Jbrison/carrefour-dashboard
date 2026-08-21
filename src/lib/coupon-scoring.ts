@@ -1,9 +1,14 @@
 import type { CarrefourCoupon } from "./coupon-types"
 import { normalizeBrand, normalizeConditions, normalizeCouponName, normalizeDiscount, normalizeText } from "./coupon-normalizer"
+import { couponBenefitType } from "./coupon-benefit"
 
 export const SIMILARITY_THRESHOLD = 0.78
 
 export function similarityScore(a: CarrefourCoupon, b: CarrefourCoupon): number {
+  const benefitA = couponBenefitType(a)
+  const benefitB = couponBenefitType(b)
+  if (benefitA && benefitB && benefitA !== benefitB) return 0
+
   const brandA = normalizeBrand(a.brand)
   const brandB = normalizeBrand(b.brand)
   if (brandA && brandB && brandA !== brandB) return 0

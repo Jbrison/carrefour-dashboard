@@ -1,8 +1,9 @@
 import type { CarrefourProductPrice, CouponGroup as CouponGroupType } from "../lib/coupon-types"
 import { formatExpirationLabel } from "../lib/date-parser"
 import { formatCouponValue, priceAfterCoupons, totalCouponValue } from "../lib/coupon-value"
-import { carrefourSearchUrl } from "../lib/product-price"
-import { useState } from "react"
+import { couponBenefitLabel, couponBenefitType } from "../lib/coupon-benefit"
+import { loadProductPrices, PRODUCT_PRICES_KEY, saveProductPrices } from "../storage/product-price-storage"
+import { useEffect, useState } from "react"
 
 export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupType; onSavingsPercent: (groupKey: string, percent: number) => void }) {
   const coupon = group.representative
@@ -11,14 +12,35 @@ export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupTyp
   const [isOpen, setIsOpen] = useState(false)
   const [prices, setPrices] = useState<CarrefourProductPrice[] | null>(null)
   const [isLoadingPrices, setIsLoadingPrices] = useState(false)
+  const [priceError, setPriceError] = useState<string | null>(null)
   const total = totalCouponValue(group.coupons)
+  const eans = groupEans(group)
+  const eanKey = eans.join(",")
+
+  useEffect(() => {
+    let active = true
+    const restorePrices = () => void loadProductPrices(eans).then((storedPrices) => {
+      if (!active || storedPrices.length === 0) return
+      setPrices(storedPrices)
+      reportSavingsPercent(storedPrices)
+    })
+    const storageListener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+      if (areaName === "local" && changes[PRODUCT_PRICES_KEY]) restorePrices()
+    }
+    restorePrices()
+    chrome.storage.onChanged.addListener(storageListener)
+    return () => {
+      active = false
+      chrome.storage.onChanged.removeListener(storageListener)
+    }
+  }, [eanKey])
 
   return (
     <article className={group.count > 1 ? "couponGroup multiple" : "couponGroup"}>
       <div className="groupHeader">
         <div>
           <h2>{coupon.product || coupon.title}</h2>
-          <p>{coupon.discountText || "Remise non identifiée"}</p>
+          <p>{coupon.discountText || "Remise non identifiée"} <span className={`benefitBadge ${couponBenefitType(coupon) ?? "unknown"}`}>{couponBenefitLabel(couponBenefitType(coupon))}</span></p>
         </div>
         <span className="badge">×{group.count}</span>
       </div>
@@ -55,21 +77,18 @@ export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupTyp
           ))}
         </div>
       )}
-      {groupEans(group).length > 0 ? (!prices ? (
-          <div className="eanLinks" aria-label="Références EAN admissibles">
-            <strong>EAN :</strong>
-            {groupEans(group).map((ean) => (
-              <a key={ean} href={carrefourSearchUrl(ean)} target="_blank" rel="noreferrer">{ean}</a>
-            ))}
-          </div>
-        ) : null
-      ) : coupon.conditions ? <p className="conditions">{coupon.conditions}</p> : null}
+      {groupEans(group).length === 0 && coupon.conditions ? <p className="conditions">{coupon.conditions}</p> : null}
       {groupEans(group).length > 0 && (
         <div className="priceComparison">
-          <div className="eanSummary">{groupEans(group).length} référence{groupEans(group).length > 1 ? "s" : ""} EAN admissible{groupEans(group).length > 1 ? "s" : ""}</div>
+          <div className="eanSummary">
+            {prices
+              ? `${pricedProductCount(prices)} prix trouvé${pricedProductCount(prices) > 1 ? "s" : ""} sur ${groupEans(group).length} référence${groupEans(group).length > 1 ? "s" : ""} admissible${groupEans(group).length > 1 ? "s" : ""}`
+              : `${groupEans(group).length} référence${groupEans(group).length > 1 ? "s" : ""} EAN admissible${groupEans(group).length > 1 ? "s" : ""}`}
+          </div>
           <button className="priceButton" type="button" disabled={isLoadingPrices} onClick={() => void loadPrices()}>
             {isLoadingPrices ? "Recherche des prix…" : prices ? "Actualiser les prix" : "Comparer les prix Carrefour"}
           </button>
+          {priceError && <p className="priceError" role="alert">{priceError}</p>}
           {prices && <PriceResults products={prices} group={group} />}
         </div>
       )}
@@ -99,22 +118,38 @@ export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupTyp
 
   async function loadPrices(): Promise<void> {
     setIsLoadingPrices(true)
+    setPriceError(null)
     try {
       const response = await chrome.runtime.sendMessage({ type: "LOOKUP_EAN_PRICES", eans: groupEans(group) }) as CarrefourProductPrice[]
+      if (!Array.isArray(response)) throw new Error("Réponse de recherche invalide")
       setPrices(response)
-      const best = bestPricedProduct(response, group)
-      const basePrice = best ? best.regularPrice ?? best.price : undefined
-      if (basePrice !== undefined && basePrice > 0) {
-        onSavingsPercent(group.key, ((basePrice - applyAllCoupons(basePrice, group)) / basePrice) * 100)
+      await saveProductPrices(response)
+      if (response.some((product) => product.status === "error")) {
+        const reasons = Array.from(new Set(response.flatMap((product) => product.errorReason ? [product.errorReason] : [])))
+        setPriceError(`Carrefour n’a pas répondu à certaines recherches${reasons.length ? ` (${reasons.join(", ")})` : ""}.`)
       }
+      reportSavingsPercent(response)
+    } catch {
+      setPriceError("Recherche impossible. Recharge l’extension et la page Carrefour, puis réessaie.")
     } finally {
       setIsLoadingPrices(false)
+    }
+  }
+
+  function reportSavingsPercent(products: CarrefourProductPrice[]): void {
+    const best = bestPricedProduct(products, group)
+    const basePrice = best ? best.regularPrice ?? best.price : undefined
+    if (basePrice !== undefined && basePrice > 0) {
+      onSavingsPercent(group.key, ((basePrice - applyAllCoupons(basePrice, group)) / basePrice) * 100)
     }
   }
 }
 
 function PriceResults({ products, group }: { products: CarrefourProductPrice[]; group: CouponGroupType }) {
-  const sorted = [...products].sort((a, b) => netPrice(a, group) - netPrice(b, group))
+  const sorted = products
+    .filter((product) => product.price !== undefined || product.regularPrice !== undefined)
+    .sort((a, b) => netPrice(a, group) - netPrice(b, group))
+  if (sorted.length === 0) return <p className="noPriceResult">Aucun prix Carrefour trouvé pour ces références.</p>
   return (
     <div className="priceResults">
       {sorted.map((product) => {
@@ -129,7 +164,7 @@ function PriceResults({ products, group }: { products: CarrefourProductPrice[]; 
               <strong>{product.name ?? `EAN ${product.ean}`}</strong>
               {effectivePrice !== undefined ? (
                 <span>{formatPrice(effectivePrice)} → <b>{formatPrice(net ?? effectivePrice)}</b>{" · "}<em>−{formatPercent(reductionPercent ?? 0)}</em></span>
-              ) : <span>Prix non trouvé</span>}
+              ) : <span>{product.status === "error" ? "Recherche Carrefour indisponible" : "Prix non trouvé"}</span>}
               {product.promotional && <small>Calcul basé sur le prix de base hors promotion</small>}
             </div>
             <a href={product.productUrl ?? product.searchUrl} target="_blank" rel="noreferrer">Voir</a>
@@ -138,6 +173,10 @@ function PriceResults({ products, group }: { products: CarrefourProductPrice[]; 
       })}
     </div>
   )
+}
+
+function pricedProductCount(products: CarrefourProductPrice[]): number {
+  return products.filter((product) => product.price !== undefined || product.regularPrice !== undefined).length
 }
 
 function groupEans(group: CouponGroupType): string[] {

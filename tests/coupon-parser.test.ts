@@ -29,6 +29,7 @@ describe("parseCoupon", () => {
 
     expect(coupon?.discountValue).toBe(0.6)
     expect(coupon?.discountType).toBe("amount")
+    expect(coupon?.benefitType).toBe("wallet")
     expect(coupon?.discountText).toContain("0,60 €")
     expect(coupon?.expirationDate).toContain("Jusqu'au 31 août")
     expect(coupon?.product).toContain("Nutella Biscuits")
@@ -46,5 +47,10 @@ describe("extractEans", () => {
 
   it("rejects arbitrary 13 digit numbers with an invalid check digit", () => {
     expect(extractEans("Produit 8001665725751")).toEqual([])
+  })
+
+  it("distinguishes immediate discounts from loyalty wallet savings", () => {
+    document.body.innerHTML = `<article class="coupon-card"><h2>Café</h2><div>-30 % de remise</div></article>`
+    expect(parseCoupon(document.querySelector("article") as HTMLElement)?.benefitType).toBe("immediate")
   })
 })

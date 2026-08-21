@@ -1,4 +1,5 @@
 import type { CarrefourCoupon } from "./coupon-types"
+import { couponBenefitType } from "./coupon-benefit"
 
 const EURO_WORDS = /\b(euro|euros|eur)\b/gi
 const SPACED_PERCENT = /(\d+(?:[,.]\d+)?)\s*%/g
@@ -76,6 +77,7 @@ export function getCouponSignature(coupon: CarrefourCoupon): string {
   const parts = [
     normalizeCouponName(coupon),
     normalizeDiscount(coupon.discountText, coupon.discountValue, coupon.discountType),
+    couponBenefitType(coupon) ?? "",
     normalizeBrand(coupon.brand)
   ].filter(Boolean)
 

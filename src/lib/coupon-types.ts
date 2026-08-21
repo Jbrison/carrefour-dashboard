@@ -6,6 +6,7 @@ export interface CarrefourCoupon {
   discountText?: string
   discountValue?: number
   discountType?: "percent" | "amount" | "other"
+  benefitType?: CouponBenefitType
   conditions?: string
   eans?: string[]
   expirationDate?: string
@@ -13,6 +14,8 @@ export interface CarrefourCoupon {
   rawText: string
   sourceList?: CouponSourceList
 }
+
+export type CouponBenefitType = "wallet" | "immediate"
 
 export interface CarrefourProductPrice {
   ean: string
@@ -24,6 +27,7 @@ export interface CarrefourProductPrice {
   productUrl?: string
   searchUrl: string
   status: "found" | "not-found" | "error"
+  errorReason?: string
 }
 
 export type CouponSourceList = "purchase" | "discount" | "unknown"

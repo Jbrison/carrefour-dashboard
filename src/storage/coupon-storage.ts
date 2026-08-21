@@ -8,14 +8,12 @@ type StoredAnalyses = Partial<Record<CouponSourceList, CouponAnalysis>>
 
 export interface CouponPreferences {
   query: string
-  onlyMultiples: boolean
   tab: "all" | "multiples" | "expiring"
   sort: "count" | "expiration" | "savingsPercent"
 }
 
 const defaultPreferences: CouponPreferences = {
   query: "",
-  onlyMultiples: false,
   tab: "all",
   sort: "count"
 }

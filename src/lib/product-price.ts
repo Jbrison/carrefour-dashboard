@@ -7,6 +7,86 @@ export function carrefourSearchUrl(ean: string): string {
   return `https://www.carrefour.fr/s?q=${encodeURIComponent(ean)}`
 }
 
+export function carrefourAutocompleteUrl(ean: string): string {
+  return `https://www.carrefour.fr/autocomplete?q=${encodeURIComponent(ean)}&maxResults=4&productCard=true`
+}
+
+export function parseCarrefourAutocomplete(payload: unknown, ean: string): CarrefourProductPrice {
+  const searchUrl = carrefourSearchUrl(ean)
+  const products = autocompleteProducts(payload)
+  const product = products.find((candidate) => candidate.attributes?.ean === ean)
+  if (!product) return { ean, promotional: false, searchUrl, status: "not-found" }
+
+  const attributes = product.attributes!
+  const offer = findAutocompleteOffer(attributes.offers, ean)
+  const price = positiveNumber(offer?.attributes?.price?.price)
+  const initialPrice = positiveNumber(offer?.attributes?.promotion?.messageArgs?.initialPrice)
+    ?? offer?.attributes?.promotions
+      ?.map((promotion) => positiveNumber(promotion.messageArgs?.initialPrice))
+      .find((value) => value !== undefined)
+  const regularPrice = initialPrice !== undefined && price !== undefined && initialPrice > price
+    ? initialPrice
+    : undefined
+  const imagePath = attributes.images?.paths?.find((path) => typeof path === "string" && path.trim())
+
+  return {
+    ean,
+    name: nonEmptyString(attributes.title),
+    price,
+    regularPrice,
+    promotional: regularPrice !== undefined,
+    imageUrl: absoluteCarrefourUrl(nonEmptyString(imagePath)),
+    productUrl: absoluteCarrefourUrl(nonEmptyString(product.links?.self)),
+    searchUrl,
+    status: "found"
+  }
+}
+
+type AutocompleteOffer = {
+  attributes?: {
+    price?: { price?: unknown }
+    promotion?: { messageArgs?: { initialPrice?: unknown } } | null
+    promotions?: Array<{ messageArgs?: { initialPrice?: unknown } }>
+  }
+}
+
+type AutocompleteProduct = {
+  attributes?: {
+    ean?: unknown
+    title?: unknown
+    images?: { paths?: unknown[] }
+    offers?: unknown
+  }
+  links?: { self?: unknown }
+}
+
+function autocompleteProducts(payload: unknown): AutocompleteProduct[] {
+  if (!payload || typeof payload !== "object") return []
+  const data = (payload as { data?: unknown }).data
+  if (!data || typeof data !== "object") return []
+  const products = (data as { products?: unknown }).products
+  return Array.isArray(products)
+    ? products.filter((product): product is AutocompleteProduct => product !== null && typeof product === "object")
+    : []
+}
+
+function findAutocompleteOffer(offers: unknown, ean: string): AutocompleteOffer | undefined {
+  if (!offers || typeof offers !== "object") return undefined
+  const eanOffers = (offers as Record<string, unknown>)[ean]
+  if (!eanOffers || typeof eanOffers !== "object") return undefined
+  return Object.values(eanOffers as Record<string, unknown>)
+    .find((offer): offer is AutocompleteOffer => offer !== null && typeof offer === "object")
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value.replace(",", ".")) : NaN
+  return Number.isFinite(number) && number > 0 && number < 10_000 ? number : undefined
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
 export function parseCarrefourProductPage(html: string, ean: string): CarrefourProductPrice {
   const searchUrl = carrefourSearchUrl(ean)
   const htmlCard = productFromHtmlCard(html, ean, searchUrl)

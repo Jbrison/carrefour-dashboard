@@ -61,4 +61,16 @@ describe("getCouponSignature", () => {
 
     expect(first).not.toBe(second)
   })
+
+  it("keeps wallet savings separate from immediate discounts", () => {
+    const base = {
+      title: "Café Carte Noire",
+      product: "Café Carte Noire",
+      discountText: "1 €",
+      discountValue: 1,
+      discountType: "amount" as const
+    }
+    expect(getCouponSignature({ ...base, benefitType: "wallet", rawText: "1 € d'économies" }))
+      .not.toBe(getCouponSignature({ ...base, benefitType: "immediate", rawText: "1 € de remise" }))
+  })
 })

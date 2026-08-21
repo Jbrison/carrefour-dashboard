@@ -5,10 +5,12 @@ import { observeCouponChanges } from "./coupon-observer"
 import { extractEans, parseCoupon } from "./coupon-parser"
 import { CARREFOUR_COUPON_STRATEGIES, COUPON_TEXT_PATTERNS, MAX_COUPON_TEXT_LENGTH, MIN_COUPON_TEXT_LENGTH } from "./selectors"
 import type { CarrefourProductPrice } from "../lib/coupon-types"
-import { carrefourSearchUrl } from "../lib/product-price"
+import { carrefourAutocompleteUrl, carrefourSearchUrl, parseCarrefourAutocomplete } from "../lib/product-price"
+import { isCouponListComplete } from "./coupon-tab-count"
 
 const DEBUG = true
 const BADGE_ID = "carrefour-coupon-optimizer-badge"
+const ANALYSIS_RUNNING_KEY = "carrefourCouponAnalysisRunning"
 
 let stopObserving: (() => void) | undefined
 let contextInvalidated = false
@@ -18,6 +20,8 @@ const conditionsAttempts = new WeakMap<HTMLElement, number>()
 let isCollectingConditions = false
 let conditionsCollectionQueued = false
 let isLoadingCouponList = false
+let analysisPromise: Promise<CouponAnalysis | null> | null = null
+let analysisNavigationPending = false
 
 interface FindResult {
   elements: HTMLElement[]
@@ -157,14 +161,20 @@ function isDiscountCouponList(): boolean {
 }
 
 function currentCouponSource(): "purchase" | "discount" | "unknown" {
-  const sourceFromUrl = couponSourceFromUrl(location.href)
-  if (sourceFromUrl !== "unknown") return sourceFromUrl
   const selectedValue = document.querySelector<HTMLInputElement>(
     ".pl-tab--selected input[type='radio'][value], input[type='radio'][value]:checked"
   )?.value
   if (selectedValue === "bons-achat") return "purchase"
-  if (selectedValue === "bons-de-reduction") return "discount"
-  return "unknown"
+  if (selectedValue === "bons-reduction" || selectedValue === "bons-de-reduction") return "discount"
+
+  const selectedTab = document.querySelector<HTMLElement>(
+    "[role='tab'][aria-selected='true'],[aria-current='page'],.pl-tab--selected"
+  )
+  const selectedText = selectedTab?.innerText || selectedTab?.textContent || ""
+  if (/bons?\s+d['’]achat/i.test(selectedText)) return "purchase"
+  if (/bons?\s+de\s+r[ée]duction/i.test(selectedText)) return "discount"
+
+  return couponSourceFromUrl(location.href)
 }
 
 function couponListUrl(): string {
@@ -177,6 +187,12 @@ function couponListUrl(): string {
 
 async function loadAllCouponCards(): Promise<void> {
   if (isLoadingCouponList || contextInvalidated) return
+  const initialSource = currentCouponSource()
+  if (initialSource === "discount" && isCurrentCouponListComplete()) return
+  if (initialSource === "purchase" && isCurrentCouponListComplete()) {
+    await openDiscountCouponList()
+    return
+  }
   isLoadingCouponList = true
   const initialX = window.scrollX
   const initialY = window.scrollY
@@ -186,6 +202,7 @@ async function loadAllCouponCards(): Promise<void> {
   try {
     for (let round = 0; round < 40 && stableRounds < 3; round += 1) {
       const cards = findCouponElements()
+      if (isCurrentCouponListComplete()) break
       const lastCard = cards.at(-1)
       if (lastCard) lastCard.scrollIntoView({ block: "end", behavior: "auto" })
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" })
@@ -204,32 +221,57 @@ async function loadAllCouponCards(): Promise<void> {
   }
 
   if (currentCouponSource() === "purchase" && !contextInvalidated) {
-    isLoadingCouponList = true
-    const clicked = clickDiscountCouponsTab()
-    if (clicked) {
-      await contentDelay(900)
-      isLoadingCouponList = false
-      await loadAllCouponCards()
-    } else {
-      isLoadingCouponList = false
-      const discountUrl = new URL(location.href)
-      discountUrl.searchParams.set("tab", "bons-de-reduction")
-      location.assign(discountUrl.href)
-    }
+    await openDiscountCouponList()
   }
 }
 
-function clickDiscountCouponsTab(): boolean {
-  const input = document.querySelector<HTMLInputElement>('input[type="radio"][value="bons-de-reduction"]')
-  if (!input) return false
-  const label = input.id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(input.id)}"]`) : null
-  if (label) label.click()
-  else input.click()
-  if (!input.checked) {
-    input.click()
-    input.dispatchEvent(new Event("change", { bubbles: true }))
+async function openDiscountCouponList(): Promise<void> {
+  if (contextInvalidated || currentCouponSource() === "discount") return
+  isLoadingCouponList = true
+  const clicked = clickDiscountCouponsTab()
+  if (clicked) {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await contentDelay(200)
+      if (currentCouponSource() === "discount") {
+        isLoadingCouponList = false
+        await loadAllCouponCards()
+        return
+      }
+    }
   }
-  return true
+
+  isLoadingCouponList = false
+  const discountUrl = new URL(location.href)
+  discountUrl.searchParams.set("tab", "bons-de-reduction")
+  analysisNavigationPending = true
+  location.assign(discountUrl.href)
+}
+
+function isCurrentCouponListComplete(): boolean {
+  const detectedCount = findCouponElements()
+    .reduce((count, element) => count + (parseCoupon(element) ? 1 : 0), 0)
+  return isCouponListComplete(detectedCount, currentCouponSource())
+}
+
+function clickDiscountCouponsTab(): boolean {
+  const input = document.querySelector<HTMLInputElement>(
+    'input[type="radio"][value="bons-de-reduction"],input[type="radio"][value="bons-reduction"]'
+  )
+  if (input) {
+    const label = input.id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(input.id)}"]`) : null
+    if (label) label.click()
+    else input.click()
+    if (!input.checked) {
+      input.click()
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    }
+    return true
+  }
+
+  const tab = Array.from(document.querySelectorAll<HTMLElement>("[role='tab'],button,a,label,.pl-tab"))
+    .find((candidate) => /bons?\s+de\s+r[ée]duction/i.test(candidate.innerText || candidate.textContent || ""))
+  tab?.click()
+  return tab !== undefined
 }
 
 async function waitForConditionsDialog(timeoutMs: number): Promise<HTMLElement | undefined> {
@@ -368,7 +410,11 @@ function registerRuntimeListener(): void {
   try {
     chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
       if (typeof message === "object" && message !== null && "type" in message && message.type === "RESCAN_COUPONS") {
-        void safeScanCoupons().then(sendResponse)
+        void runFullAnalysis().then(sendResponse)
+        return true
+      }
+      if (isAutocompleteFetchMessage(message)) {
+        void fetchAutocompletePrices(message.eans).then(sendResponse)
         return true
       }
       return false
@@ -398,16 +444,83 @@ function registerContextInvalidationFilters(): void {
   })
 }
 
+function runFullAnalysis(): Promise<CouponAnalysis | null> {
+  if (analysisPromise) return analysisPromise
+  sessionStorage.setItem(ANALYSIS_RUNNING_KEY, "1")
+  stopObserving = observeCouponChanges(() => {
+    void safeScanCoupons()
+  })
+  analysisPromise = (async () => {
+    try {
+      await safeScanCoupons()
+      await loadAllCouponCards()
+      await collectAllConditions()
+      return await safeScanCoupons()
+    } finally {
+      if (!analysisNavigationPending) sessionStorage.removeItem(ANALYSIS_RUNNING_KEY)
+      stopObserving?.()
+      stopObserving = undefined
+      analysisPromise = null
+    }
+  })()
+  return analysisPromise
+}
+
 function start(): void {
   registerContextInvalidationFilters()
   if (!isExtensionContextActive()) return
 
   registerConditionsClicks()
-  void safeScanCoupons().then(() => loadAllCouponCards()).then(() => collectAllConditions())
-  stopObserving = observeCouponChanges(() => {
-    void safeScanCoupons().then(() => collectAllConditions())
-  })
   registerRuntimeListener()
+  if (sessionStorage.getItem(ANALYSIS_RUNNING_KEY) === "1") void runFullAnalysis()
+}
+
+async function fetchAutocompletePrices(eans: string[]): Promise<CarrefourProductPrice[]> {
+  const results = new Array<CarrefourProductPrice>(eans.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(16, eans.length) }, async () => {
+    while (nextIndex < eans.length) {
+      const index = nextIndex++
+      results[index] = await fetchAutocompletePrice(eans[index])
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+async function fetchAutocompletePrice(ean: string): Promise<CarrefourProductPrice> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 8_000)
+  try {
+    const response = await fetch(carrefourAutocompleteUrl(ean), {
+      credentials: "include",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest"
+      },
+      signal: controller.signal
+    })
+    if (!response.ok) return unavailableProduct(ean, `HTTP ${response.status}`)
+    try {
+      return parseCarrefourAutocomplete(await response.json(), ean)
+    } catch {
+      return unavailableProduct(ean, "Réponse non JSON")
+    }
+  } catch (error) {
+    return unavailableProduct(ean, error instanceof DOMException && error.name === "AbortError" ? "Délai dépassé" : "Erreur réseau")
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+function unavailableProduct(ean: string, errorReason: string): CarrefourProductPrice {
+  return { ean, promotional: false, searchUrl: carrefourSearchUrl(ean), status: "error", errorReason }
+}
+
+function isAutocompleteFetchMessage(message: unknown): message is { type: "FETCH_CARREFOUR_AUTOCOMPLETE"; eans: string[] } {
+  return typeof message === "object" && message !== null && "type" in message &&
+    message.type === "FETCH_CARREFOUR_AUTOCOMPLETE" && "eans" in message && Array.isArray(message.eans) &&
+    message.eans.length <= 100 && message.eans.every((ean) => /^\d{13}$/.test(ean))
 }
 
 function startProductReader(): void {
@@ -475,7 +588,6 @@ function parseRenderedPrice(text: string): number | undefined {
 
 try {
   if (location.pathname.startsWith("/mon-compte/fidelite/mes-coupons")) start()
-  else startProductReader()
 } catch (error) {
   if (isExtensionContextInvalidatedError(error)) {
     handleExtensionContextInvalidated()

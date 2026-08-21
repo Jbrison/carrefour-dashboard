@@ -1,5 +1,6 @@
 import type { CarrefourCoupon } from "../lib/coupon-types"
 import { parseExpirationDate } from "../lib/date-parser"
+import { detectCouponBenefitType } from "../lib/coupon-benefit"
 
 const DISCOUNT_PATTERN = /(?:-|−)?\s*(\d+(?:[,.]\d+)?)\s*(%|€|euros?|eur)(?=\s|$)/i
 const DATE_CONTEXT_PATTERN = /(?:expire(?: le)?|expiration|valable jusqu(?:'|’)?au|jusqu(?:'|’)?au)\s+([^\n.]{3,40})/i
@@ -21,6 +22,7 @@ export function parseCoupon(element: HTMLElement): CarrefourCoupon | null {
     discountText: discount?.discountText,
     discountValue: discount?.discountValue,
     discountType: discount?.discountType,
+    benefitType: detectCouponBenefitType(rawText),
     conditions: extractConditions(element, rawText),
     eans: extractEans(rawText),
     expirationDate,
