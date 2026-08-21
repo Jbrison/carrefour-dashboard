@@ -184,7 +184,8 @@ select {
   font-weight: 800;
 }
 
-.expirations {
+.expirations,
+.sources {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -192,10 +193,16 @@ select {
   font-size: 13px;
 }
 
-.expirations span {
+.expirations span,
+.sources span {
   border-radius: 999px;
   background: #edf1ee;
   padding: 3px 7px;
+}
+
+.sources span {
+  background: #eaf1ff;
+  color: #174ea6;
 }
 
 .conditions {

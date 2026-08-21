@@ -9,7 +9,10 @@ export interface CarrefourCoupon {
   conditions?: string
   expirationDate?: string
   rawText: string
+  sourceList?: CouponSourceList
 }
+
+export type CouponSourceList = "purchase" | "discount" | "unknown"
 
 export interface CouponGroup {
   key: string

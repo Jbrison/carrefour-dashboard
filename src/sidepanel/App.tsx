@@ -27,8 +27,8 @@ export function App() {
 
   useEffect(() => {
     const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
-      if (areaName === "local" && changes.carrefourCouponAnalysis?.newValue) {
-        setAnalysis(changes.carrefourCouponAnalysis.newValue as CouponAnalysis)
+      if (areaName === "local" && changes.carrefourCouponAnalysis) {
+        void loadCoupons().then(setAnalysis)
       }
     }
     chrome.storage.onChanged.addListener(listener)
