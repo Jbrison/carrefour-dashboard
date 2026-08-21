@@ -23,7 +23,21 @@ export function parseCoupon(element: HTMLElement): CarrefourCoupon | null {
     discountType: discount?.discountType,
     conditions: extractConditions(element, rawText),
     expirationDate,
+    imageUrl: extractImageUrl(element),
     rawText
+  }
+}
+
+function extractImageUrl(element: HTMLElement): string | undefined {
+  const image = element.querySelector<HTMLImageElement>("img")
+  if (!image) return undefined
+
+  const url = image.currentSrc || image.src || image.dataset.src || image.getAttribute("data-src") || ""
+  if (!url || url.startsWith("data:")) return undefined
+  try {
+    return new URL(url, location.href).href
+  } catch {
+    return undefined
   }
 }
 

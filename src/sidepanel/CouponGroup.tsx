@@ -1,10 +1,14 @@
 import type { CouponGroup as CouponGroupType } from "../lib/coupon-types"
 import { formatExpirationLabel } from "../lib/date-parser"
+import { formatCouponValue, totalCouponValue } from "../lib/coupon-value"
+import { useState } from "react"
 
 export function CouponGroup({ group }: { group: CouponGroupType }) {
   const coupon = group.representative
   const expirations = expirationCounts(group)
   const sources = sourceCounts(group)
+  const [isOpen, setIsOpen] = useState(false)
+  const total = totalCouponValue(group.coupons)
 
   return (
     <article className={group.count > 1 ? "couponGroup multiple" : "couponGroup"}>
@@ -16,6 +20,12 @@ export function CouponGroup({ group }: { group: CouponGroupType }) {
         <span className="badge">×{group.count}</span>
       </div>
       <p className="muted">{group.count} coupon{group.count > 1 ? "s similaires" : " similaire"}</p>
+      {group.count > 1 && (
+        <div className="valueSummary">
+          <span>Valeur unitaire : <strong>{formatCouponValue(coupon)}</strong></span>
+          <span>Valeur totale : <strong>{total ?? "non calculable"}</strong></span>
+        </div>
+      )}
       {sources.length > 0 && (
         <div className="sources" aria-label="Origine des coupons">
           {sources.map(([source, count]) => <span key={source}>{sourceLabel(source)} ×{count}</span>)}
@@ -30,6 +40,27 @@ export function CouponGroup({ group }: { group: CouponGroupType }) {
         </div>
       )}
       {coupon.conditions && <p className="conditions">{coupon.conditions}</p>}
+      <button className="detailsButton" type="button" aria-expanded={isOpen} onClick={() => setIsOpen((open) => !open)}>
+        {isOpen ? "Masquer les coupons" : "Voir les coupons et leurs photos"}
+      </button>
+      {isOpen && (
+        <div className="couponDetails">
+          {group.coupons.map((item, index) => (
+            <article className="couponDetail" key={`${item.id ?? item.imageUrl ?? "coupon"}-${index}`}>
+              {item.imageUrl ? (
+                <img src={item.imageUrl} alt={item.product || item.title} loading="lazy" />
+              ) : (
+                <div className="imagePlaceholder">Photo indisponible</div>
+              )}
+              <div>
+                <strong>Coupon {index + 1} · {formatCouponValue(item)}</strong>
+                <p>{item.product || item.title}</p>
+                {item.sourceList && item.sourceList !== "unknown" && <small>{sourceLabel(item.sourceList)}</small>}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </article>
   )
 }

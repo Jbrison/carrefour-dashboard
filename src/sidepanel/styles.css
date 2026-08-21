@@ -200,6 +200,31 @@ select {
   padding: 3px 7px;
 }
 
+.headerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.dangerButton {
+  color: #a32727;
+}
+
+.siteButton {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: #1769e0;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .sources span {
   background: #eaf1ff;
   color: #174ea6;
@@ -209,6 +234,65 @@ select {
   margin: 10px 0 0;
   color: #44514a;
   font-size: 13px;
+}
+
+.valueSummary {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.detailsButton {
+  margin-top: 12px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #1769e0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.couponDetails {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.couponDetail {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #e3e7e4;
+  padding-top: 8px;
+}
+
+.couponDetail img,
+.imagePlaceholder {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #f4f5f3;
+}
+
+.imagePlaceholder {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  color: #7a837e;
+  text-align: center;
+  font-size: 10px;
+}
+
+.couponDetail p {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.couponDetail small {
+  color: #65716b;
 }
 
 .empty {

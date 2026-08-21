@@ -34,5 +34,6 @@ describe("parseCoupon", () => {
     expect(coupon?.product).toContain("Nutella Biscuits")
     expect(coupon?.title).toContain("Nutella Biscuits")
     expect(coupon?.title).not.toContain("0,60 €")
+    expect(coupon?.imageUrl).toBe("https://example.test/nutella.png")
   })
 })

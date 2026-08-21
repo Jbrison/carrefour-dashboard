@@ -1,11 +1,12 @@
-import { RefreshCw, Search } from "lucide-react"
+import { ExternalLink, RefreshCw, RotateCcw, Search } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { CouponAnalysis, CouponGroup } from "../lib/coupon-types"
 import { daysUntilExpiration, parseExpirationDate } from "../lib/date-parser"
-import { emptyDiagnostics, loadCoupons, loadPreferences, savePreferences, type CouponPreferences } from "../storage/coupon-storage"
+import { clearCoupons, emptyDiagnostics, loadCoupons, loadPreferences, savePreferences, type CouponPreferences } from "../storage/coupon-storage"
 import { CouponList } from "./CouponList"
 
 const isDevelopment = import.meta.env.DEV
+const CARREFOUR_COUPONS_URL = "https://www.carrefour.fr/mon-compte/fidelite/mes-coupons"
 
 export function App() {
   const [analysis, setAnalysis] = useState<CouponAnalysis | null>(null)
@@ -51,6 +52,11 @@ export function App() {
     })
   }
 
+  const resetCoupons = () => {
+    if (!window.confirm("Réinitialiser toutes les listes de coupons enregistrées ?")) return
+    void clearCoupons().then(() => setAnalysis(null))
+  }
+
   if (isLoading) return <main className="panel"><p>Chargement...</p></main>
 
   return (
@@ -63,9 +69,18 @@ export function App() {
             {analysis?.stats.duplicateGroups ?? 0} offres avec plusieurs coupons
           </p>
         </div>
-        <button className="iconButton" type="button" title="Relancer l'analyse" onClick={rescan}>
-          <RefreshCw size={18} />
-        </button>
+        <div className="headerActions">
+          <button className="iconButton" type="button" title="Relancer l'analyse" aria-label="Relancer l'analyse" onClick={rescan}>
+            <RefreshCw size={18} />
+          </button>
+          <button className="iconButton dangerButton" type="button" title="Réinitialiser toutes les listes" aria-label="Réinitialiser toutes les listes" onClick={resetCoupons}>
+            <RotateCcw size={18} />
+          </button>
+          <a className="siteButton" href={CARREFOUR_COUPONS_URL} target="_blank" rel="noreferrer">
+            <ExternalLink size={16} />
+            Site Carrefour
+          </a>
+        </div>
       </header>
 
       {analysis?.stats.totalCoupons ? (

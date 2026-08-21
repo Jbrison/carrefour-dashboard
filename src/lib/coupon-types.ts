@@ -8,6 +8,7 @@ export interface CarrefourCoupon {
   discountType?: "percent" | "amount" | "other"
   conditions?: string
   expirationDate?: string
+  imageUrl?: string
   rawText: string
   sourceList?: CouponSourceList
 }
