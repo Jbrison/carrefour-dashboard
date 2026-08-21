@@ -1,10 +1,10 @@
 import type { CarrefourProductPrice, CouponGroup as CouponGroupType } from "../lib/coupon-types"
 import { formatExpirationLabel } from "../lib/date-parser"
-import { formatCouponValue, totalCouponValue } from "../lib/coupon-value"
+import { formatCouponValue, priceAfterCoupons, totalCouponValue } from "../lib/coupon-value"
 import { carrefourSearchUrl } from "../lib/product-price"
 import { useState } from "react"
 
-export function CouponGroup({ group }: { group: CouponGroupType }) {
+export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupType; onSavingsPercent: (groupKey: string, percent: number) => void }) {
   const coupon = group.representative
   const expirations = expirationCounts(group)
   const sources = sourceCounts(group)
@@ -27,6 +27,19 @@ export function CouponGroup({ group }: { group: CouponGroupType }) {
         <div className="valueSummary">
           <span>Valeur unitaire : <strong>{formatCouponValue(coupon)}</strong></span>
           <span>Valeur totale : <strong>{total ?? "non calculable"}</strong></span>
+          {prices && bestPricedProduct(prices, group) && (() => {
+            const best = bestPricedProduct(prices, group)!
+            const basePrice = best.regularPrice ?? best.price!
+            const bestNetPrice = applyAllCoupons(basePrice, group)
+            const bestReductionPercent = ((basePrice - bestNetPrice) / basePrice) * 100
+            return (
+              <span className="bestPrice">
+                Meilleur prix : <strong>{formatPrice(bestNetPrice)}</strong>{" · "}
+                <em>−{formatPercent(bestReductionPercent)}</em>{" · "}
+                <a href={best.productUrl ?? best.searchUrl} target="_blank" rel="noreferrer">EAN {best.ean}</a>
+              </span>
+            )
+          })()}
         </div>
       )}
       {sources.length > 0 && (
@@ -42,13 +55,14 @@ export function CouponGroup({ group }: { group: CouponGroupType }) {
           ))}
         </div>
       )}
-      {groupEans(group).length > 0 ? (
-        <div className="eanLinks" aria-label="Références EAN admissibles">
-          <strong>EAN :</strong>
-          {groupEans(group).map((ean) => (
-            <a key={ean} href={carrefourSearchUrl(ean)} target="_blank" rel="noreferrer">{ean}</a>
-          ))}
-        </div>
+      {groupEans(group).length > 0 ? (!prices ? (
+          <div className="eanLinks" aria-label="Références EAN admissibles">
+            <strong>EAN :</strong>
+            {groupEans(group).map((ean) => (
+              <a key={ean} href={carrefourSearchUrl(ean)} target="_blank" rel="noreferrer">{ean}</a>
+            ))}
+          </div>
+        ) : null
       ) : coupon.conditions ? <p className="conditions">{coupon.conditions}</p> : null}
       {groupEans(group).length > 0 && (
         <div className="priceComparison">
@@ -56,7 +70,7 @@ export function CouponGroup({ group }: { group: CouponGroupType }) {
           <button className="priceButton" type="button" disabled={isLoadingPrices} onClick={() => void loadPrices()}>
             {isLoadingPrices ? "Recherche des prix…" : prices ? "Actualiser les prix" : "Comparer les prix Carrefour"}
           </button>
-          {prices && <PriceResults products={prices} coupon={coupon} />}
+          {prices && <PriceResults products={prices} group={group} />}
         </div>
       )}
       <button className="detailsButton" type="button" aria-expanded={isOpen} onClick={() => setIsOpen((open) => !open)}>
@@ -88,25 +102,33 @@ export function CouponGroup({ group }: { group: CouponGroupType }) {
     try {
       const response = await chrome.runtime.sendMessage({ type: "LOOKUP_EAN_PRICES", eans: groupEans(group) }) as CarrefourProductPrice[]
       setPrices(response)
+      const best = bestPricedProduct(response, group)
+      const basePrice = best ? best.regularPrice ?? best.price : undefined
+      if (basePrice !== undefined && basePrice > 0) {
+        onSavingsPercent(group.key, ((basePrice - applyAllCoupons(basePrice, group)) / basePrice) * 100)
+      }
     } finally {
       setIsLoadingPrices(false)
     }
   }
 }
 
-function PriceResults({ products, coupon }: { products: CarrefourProductPrice[]; coupon: CouponGroupType["representative"] }) {
-  const sorted = [...products].sort((a, b) => netPrice(a, coupon) - netPrice(b, coupon))
+function PriceResults({ products, group }: { products: CarrefourProductPrice[]; group: CouponGroupType }) {
+  const sorted = [...products].sort((a, b) => netPrice(a, group) - netPrice(b, group))
   return (
     <div className="priceResults">
       {sorted.map((product) => {
         const effectivePrice = product.regularPrice ?? product.price
-        const net = effectivePrice === undefined ? undefined : applyDiscount(effectivePrice, coupon)
+        const net = effectivePrice === undefined ? undefined : applyAllCoupons(effectivePrice, group)
+        const reductionPercent = effectivePrice !== undefined && net !== undefined && effectivePrice > 0
+          ? ((effectivePrice - net) / effectivePrice) * 100
+          : undefined
         return (
           <div className="priceResult" key={product.ean}>
             <div>
               <strong>{product.name ?? `EAN ${product.ean}`}</strong>
               {effectivePrice !== undefined ? (
-                <span>{formatPrice(effectivePrice)} → <b>{formatPrice(net ?? effectivePrice)}</b></span>
+                <span>{formatPrice(effectivePrice)} → <b>{formatPrice(net ?? effectivePrice)}</b>{" · "}<em>−{formatPercent(reductionPercent ?? 0)}</em></span>
               ) : <span>Prix non trouvé</span>}
               {product.promotional && <small>Calcul basé sur le prix de base hors promotion</small>}
             </div>
@@ -122,20 +144,27 @@ function groupEans(group: CouponGroupType): string[] {
   return Array.from(new Set(group.coupons.flatMap((coupon) => coupon.eans ?? [])))
 }
 
-function applyDiscount(price: number, coupon: CouponGroupType["representative"]): number {
-  if (coupon.discountValue === undefined) return price
-  if (coupon.discountType === "amount") return Math.max(0, price - coupon.discountValue)
-  if (coupon.discountType === "percent") return Math.max(0, price * (1 - coupon.discountValue / 100))
-  return price
+function bestPricedProduct(products: CarrefourProductPrice[], group: CouponGroupType): CarrefourProductPrice | undefined {
+  return products
+    .filter((product) => product.price !== undefined || product.regularPrice !== undefined)
+    .sort((a, b) => netPrice(a, group) - netPrice(b, group))[0]
 }
 
-function netPrice(product: CarrefourProductPrice, coupon: CouponGroupType["representative"]): number {
+function applyAllCoupons(price: number, group: CouponGroupType): number {
+  return priceAfterCoupons(price, group.coupons)
+}
+
+function netPrice(product: CarrefourProductPrice, group: CouponGroupType): number {
   const price = product.regularPrice ?? product.price
-  return price === undefined ? Number.POSITIVE_INFINITY : applyDiscount(price, coupon)
+  return price === undefined ? Number.POSITIVE_INFINITY : applyAllCoupons(price, group)
 }
 
 function formatPrice(value: number): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value)
+}
+
+function formatPercent(value: number): string {
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 }).format(value) + " %"
 }
 
 function sourceCounts(group: CouponGroupType): Array<[string, number]> {

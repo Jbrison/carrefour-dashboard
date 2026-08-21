@@ -279,6 +279,7 @@ select {
 .priceResult { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #dbe4f2; padding-top: 6px; font-size: 12px; }
 .priceResult div { display: grid; gap: 2px; }
 .priceResult span, .priceResult small { color: #52605a; }
+.priceResult em { color: #087443; font-style: normal; font-weight: 700; }
 .priceResult a { align-self: center; color: #1769e0; }
 
 .valueSummary {
@@ -287,6 +288,16 @@ select {
   margin-top: 10px;
   font-size: 13px;
 }
+
+.bestPrice {
+  margin-top: 3px;
+  border-top: 1px solid #dce5df;
+  padding-top: 6px;
+  color: #064b2f;
+}
+
+.bestPrice a { color: #1769e0; }
+.bestPrice em { color: #087443; font-style: normal; font-weight: 700; }
 
 .detailsButton {
   margin-top: 12px;

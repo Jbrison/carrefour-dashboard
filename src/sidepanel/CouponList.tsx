@@ -1,7 +1,7 @@
 import type { CouponGroup as CouponGroupType } from "../lib/coupon-types"
 import { CouponGroup } from "./CouponGroup"
 
-export function CouponList({ groups }: { groups: CouponGroupType[] }) {
+export function CouponList({ groups, onSavingsPercent }: { groups: CouponGroupType[]; onSavingsPercent: (groupKey: string, percent: number) => void }) {
   if (groups.length === 0) {
     return <p className="muted">Aucun groupe ne correspond aux filtres.</p>
   }
@@ -9,7 +9,7 @@ export function CouponList({ groups }: { groups: CouponGroupType[] }) {
   return (
     <section className="list" aria-label="Groupes de coupons">
       {groups.map((group) => (
-        <CouponGroup key={group.key} group={group} />
+        <CouponGroup key={group.key} group={group} onSavingsPercent={onSavingsPercent} />
       ))}
     </section>
   )

@@ -17,6 +17,7 @@ export function App() {
     sort: "count"
   })
   const [isLoading, setIsLoading] = useState(true)
+  const [savingsPercentByGroup, setSavingsPercentByGroup] = useState<Record<string, number>>({})
 
   useEffect(() => {
     void Promise.all([loadCoupons(), loadPreferences()]).then(([storedAnalysis, storedPreferences]) => {
@@ -36,7 +37,10 @@ export function App() {
     return () => chrome.storage.onChanged.removeListener(listener)
   }, [])
 
-  const groups = useMemo(() => filterGroups(analysis?.groups ?? [], preferences), [analysis?.groups, preferences])
+  const groups = useMemo(
+    () => filterGroups(analysis?.groups ?? [], preferences, savingsPercentByGroup),
+    [analysis?.groups, preferences, savingsPercentByGroup]
+  )
   const diagnostics = analysis?.diagnostics ?? emptyDiagnostics("Aucune analyse disponible.")
 
   const updatePreferences = (patch: Partial<CouponPreferences>) => {
@@ -122,10 +126,14 @@ export function App() {
         <select value={preferences.sort} onChange={(event) => updatePreferences({ sort: event.target.value as CouponPreferences["sort"] })}>
           <option value="count">Tri par nombre</option>
           <option value="expiration">Tri par expiration</option>
+          <option value="savingsPercent">Tri par % de réduction</option>
         </select>
       </div>
 
-      <CouponList groups={groups} />
+      <CouponList
+        groups={groups}
+        onSavingsPercent={(groupKey, percent) => setSavingsPercentByGroup((current) => ({ ...current, [groupKey]: percent }))}
+      />
 
       {isDevelopment && (
         <section className="debug">
@@ -151,7 +159,7 @@ function Stat({ label, value }: { label: string; value: number | string }) {
   )
 }
 
-function filterGroups(groups: CouponGroup[], preferences: CouponPreferences): CouponGroup[] {
+function filterGroups(groups: CouponGroup[], preferences: CouponPreferences, savingsPercentByGroup: Record<string, number>): CouponGroup[] {
   const query = preferences.query.trim().toLocaleLowerCase("fr-FR")
   return groups
     .filter((group) => {
@@ -167,6 +175,14 @@ function filterGroups(groups: CouponGroup[], preferences: CouponPreferences): Co
     .filter((group) => !query || `${group.representative.title} ${group.representative.rawText}`.toLocaleLowerCase("fr-FR").includes(query))
     .sort((a, b) => {
       if (preferences.sort === "expiration") return firstExpiration(a) - firstExpiration(b)
+      if (preferences.sort === "savingsPercent") {
+        const aPercent = savingsPercentByGroup[a.key]
+        const bPercent = savingsPercentByGroup[b.key]
+        if (aPercent === undefined && bPercent === undefined) return b.count - a.count
+        if (aPercent === undefined) return 1
+        if (bPercent === undefined) return -1
+        return bPercent - aPercent
+      }
       return b.count - a.count
     })
 }

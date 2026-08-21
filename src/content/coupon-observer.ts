@@ -7,7 +7,11 @@ export function observeCouponChanges(onChange: () => void, debounceMs = 500): ()
   }
 
   const observer = new MutationObserver((mutations) => {
-    const hasRelevantChange = mutations.some((mutation) => mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
+    const hasRelevantChange = mutations.some((mutation) => {
+      const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentElement
+      if (target?.closest("#carrefour-coupon-optimizer-badge")) return false
+      return mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0
+    })
     if (hasRelevantChange) schedule()
   })
 

@@ -10,7 +10,7 @@ export interface CouponPreferences {
   query: string
   onlyMultiples: boolean
   tab: "all" | "multiples" | "expiring"
-  sort: "count" | "expiration"
+  sort: "count" | "expiration" | "savingsPercent"
 }
 
 const defaultPreferences: CouponPreferences = {

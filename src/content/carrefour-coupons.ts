@@ -1,6 +1,6 @@
 import { groupCoupons, computeStats } from "../lib/coupon-grouper"
 import type { CarrefourCoupon, CouponAnalysis } from "../lib/coupon-types"
-import { saveCoupons } from "../storage/coupon-storage"
+import { couponSourceFromUrl, loadCoupons, saveCoupons } from "../storage/coupon-storage"
 import { observeCouponChanges } from "./coupon-observer"
 import { extractEans, parseCoupon } from "./coupon-parser"
 import { CARREFOUR_COUPON_STRATEGIES, COUPON_TEXT_PATTERNS, MAX_COUPON_TEXT_LENGTH, MIN_COUPON_TEXT_LENGTH } from "./selectors"
@@ -14,7 +14,10 @@ let stopObserving: (() => void) | undefined
 let contextInvalidated = false
 let pendingConditionsCard: HTMLElement | undefined
 const revealedConditions = new WeakMap<HTMLElement, { text: string; eans: string[] }>()
+const conditionsAttempts = new WeakMap<HTMLElement, number>()
 let isCollectingConditions = false
+let conditionsCollectionQueued = false
+let isLoadingCouponList = false
 
 interface FindResult {
   elements: HTMLElement[]
@@ -60,7 +63,7 @@ async function scanCoupons(): Promise<CouponAnalysis> {
     groups,
     stats: computeStats(coupons, groups),
     diagnostics: {
-      url: location.href,
+      url: couponListUrl(),
       candidateCount: elements.length,
       parsedCount: coupons.length,
       strategy,
@@ -96,15 +99,31 @@ function registerConditionsClicks(): void {
 }
 
 async function collectAllConditions(): Promise<void> {
-  if (isCollectingConditions || contextInvalidated) return
+  if (contextInvalidated || !isDiscountCouponList()) return
+  if (isCollectingConditions || isLoadingCouponList) {
+    conditionsCollectionQueued = true
+    return
+  }
   isCollectingConditions = true
   try {
     const cards = findCouponElements()
-    for (const card of cards) {
-      if ((parseCoupon(card)?.eans?.length ?? 0) > 0 || revealedConditions.has(card)) continue
+    const parsedCards = cards
+      .map((card) => ({ card, coupon: parseCoupon(card) }))
+      .filter((item): item is { card: HTMLElement; coupon: CarrefourCoupon } => item.coupon !== null)
+    const stored = await loadCoupons()
+    const otherListCoupons = (stored?.coupons ?? []).filter((coupon) => coupon.sourceList !== "discount")
+    const comparisonGroups = groupCoupons([...otherListCoupons, ...parsedCards.map((item) => item.coupon)])
+    const multipleCoupons = new Set(
+      comparisonGroups.filter((group) => group.count > 1).flatMap((group) => group.coupons)
+    )
+
+    for (const { card, coupon } of parsedCards) {
+      if (!multipleCoupons.has(coupon)) continue
+      if ((coupon.eans?.length ?? 0) > 0 || revealedConditions.has(card) || (conditionsAttempts.get(card) ?? 0) >= 3) continue
       const trigger = Array.from(card.querySelectorAll<HTMLElement>("button,a"))
         .find((element) => /voir\s+les\s+conditions|conditions/i.test(element.innerText || element.textContent || element.getAttribute("aria-label") || ""))
       if (!trigger) continue
+      conditionsAttempts.set(card, (conditionsAttempts.get(card) ?? 0) + 1)
       pendingConditionsCard = card
       trigger.click()
       const dialog = await waitForConditionsDialog(4_000)
@@ -122,7 +141,95 @@ async function collectAllConditions(): Promise<void> {
     await safeScanCoupons()
   } finally {
     isCollectingConditions = false
+    if (conditionsCollectionQueued) {
+      conditionsCollectionQueued = false
+      void collectAllConditions()
+    }
   }
+}
+
+function isDiscountCouponList(): boolean {
+  const source = currentCouponSource()
+  if (source === "discount") return true
+  if (source === "purchase") return false
+  const selectedTab = document.querySelector<HTMLElement>("[role='tab'][aria-selected='true'],[aria-current='page']")
+  return /bons?\s+de\s+r[ée]duction/i.test(selectedTab?.innerText || selectedTab?.textContent || "")
+}
+
+function currentCouponSource(): "purchase" | "discount" | "unknown" {
+  const sourceFromUrl = couponSourceFromUrl(location.href)
+  if (sourceFromUrl !== "unknown") return sourceFromUrl
+  const selectedValue = document.querySelector<HTMLInputElement>(
+    ".pl-tab--selected input[type='radio'][value], input[type='radio'][value]:checked"
+  )?.value
+  if (selectedValue === "bons-achat") return "purchase"
+  if (selectedValue === "bons-de-reduction") return "discount"
+  return "unknown"
+}
+
+function couponListUrl(): string {
+  const source = currentCouponSource()
+  if (source === "unknown") return location.href
+  const url = new URL(location.href)
+  url.searchParams.set("tab", source === "purchase" ? "bons-achat" : "bons-de-reduction")
+  return url.href
+}
+
+async function loadAllCouponCards(): Promise<void> {
+  if (isLoadingCouponList || contextInvalidated) return
+  isLoadingCouponList = true
+  const initialX = window.scrollX
+  const initialY = window.scrollY
+  let stableRounds = 0
+  let previousCount = -1
+  let previousHeight = -1
+  try {
+    for (let round = 0; round < 40 && stableRounds < 3; round += 1) {
+      const cards = findCouponElements()
+      const lastCard = cards.at(-1)
+      if (lastCard) lastCard.scrollIntoView({ block: "end", behavior: "auto" })
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" })
+      await contentDelay(600)
+
+      const count = findCouponElements().length
+      const height = document.documentElement.scrollHeight
+      stableRounds = count === previousCount && height === previousHeight ? stableRounds + 1 : 0
+      previousCount = count
+      previousHeight = height
+    }
+  } finally {
+    window.scrollTo({ left: initialX, top: initialY, behavior: "auto" })
+    isLoadingCouponList = false
+    await safeScanCoupons()
+  }
+
+  if (currentCouponSource() === "purchase" && !contextInvalidated) {
+    isLoadingCouponList = true
+    const clicked = clickDiscountCouponsTab()
+    if (clicked) {
+      await contentDelay(900)
+      isLoadingCouponList = false
+      await loadAllCouponCards()
+    } else {
+      isLoadingCouponList = false
+      const discountUrl = new URL(location.href)
+      discountUrl.searchParams.set("tab", "bons-de-reduction")
+      location.assign(discountUrl.href)
+    }
+  }
+}
+
+function clickDiscountCouponsTab(): boolean {
+  const input = document.querySelector<HTMLInputElement>('input[type="radio"][value="bons-de-reduction"]')
+  if (!input) return false
+  const label = input.id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(input.id)}"]`) : null
+  if (label) label.click()
+  else input.click()
+  if (!input.checked) {
+    input.click()
+    input.dispatchEvent(new Event("change", { bubbles: true }))
+  }
+  return true
 }
 
 async function waitForConditionsDialog(timeoutMs: number): Promise<HTMLElement | undefined> {
@@ -296,9 +403,9 @@ function start(): void {
   if (!isExtensionContextActive()) return
 
   registerConditionsClicks()
-  void safeScanCoupons().then(() => collectAllConditions())
+  void safeScanCoupons().then(() => loadAllCouponCards()).then(() => collectAllConditions())
   stopObserving = observeCouponChanges(() => {
-    void safeScanCoupons()
+    void safeScanCoupons().then(() => collectAllConditions())
   })
   registerRuntimeListener()
 }
