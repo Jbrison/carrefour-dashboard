@@ -1,0 +1,241 @@
+:root {
+  color: #17201b;
+  background: #f6f7f4;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.panel {
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.header h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.header p,
+.muted {
+  margin: 0;
+  color: #65716b;
+  font-size: 13px;
+}
+
+.iconButton {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #c9d2cc;
+  border-radius: 6px;
+  background: #fff;
+  color: #143d2b;
+  cursor: pointer;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.stats div,
+.empty,
+.debug {
+  border: 1px solid #d9dfda;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.stats strong {
+  display: block;
+  font-size: 20px;
+}
+
+.stats span {
+  display: block;
+  color: #65716b;
+  font-size: 12px;
+}
+
+.tabs,
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tabs button,
+.empty button,
+.toolbar select {
+  border: 1px solid #c9d2cc;
+  border-radius: 6px;
+  background: #fff;
+  color: #17201b;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.tabs .active {
+  background: #0b6b43;
+  border-color: #0b6b43;
+  color: #fff;
+}
+
+.toolbar {
+  align-items: center;
+}
+
+.search {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #c9d2cc;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 9px;
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #44514a;
+  font-size: 13px;
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+}
+
+.couponGroup {
+  border: 1px solid #d9dfda;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.couponGroup.multiple {
+  border-color: #0b6b43;
+}
+
+.groupHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.groupHeader h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.groupHeader p {
+  margin: 0;
+  font-weight: 700;
+  color: #0b6b43;
+}
+
+.badge {
+  min-width: 38px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e5f4ed;
+  color: #064b2f;
+  font-weight: 800;
+}
+
+.expirations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.expirations span {
+  border-radius: 999px;
+  background: #edf1ee;
+  padding: 3px 7px;
+}
+
+.conditions {
+  margin: 10px 0 0;
+  color: #44514a;
+  font-size: 13px;
+}
+
+.empty {
+  margin-bottom: 14px;
+}
+
+.empty h2,
+.debug h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.empty p {
+  margin: 0 0 10px;
+  color: #65716b;
+}
+
+.debug {
+  margin-top: 16px;
+  font-size: 12px;
+}
+
+.debug dl {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 4px 8px;
+  margin: 0;
+}
+
+.debug dt {
+  color: #65716b;
+}
+
+.debug dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Optimiseur Coupons Carrefour",
+  "version": "0.1.0",
+  "description": "Analyse les coupons Carrefour visibles sur la page fidélité et regroupe les offres similaires.",
+  "permissions": ["storage", "sidePanel"],
+  "host_permissions": ["https://www.carrefour.fr/mon-compte/fidelite/mes-coupons*"],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.carrefour.fr/mon-compte/fidelite/mes-coupons*"],
+      "js": ["content/carrefour-coupons.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}
