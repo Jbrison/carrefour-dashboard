@@ -6,6 +6,8 @@ import { loadProductPrices, PRODUCT_PRICES_KEY } from "../storage/product-price-
 
 export function PriceTable({ groups }: { groups: CouponGroup[] }) {
   const [products, setProducts] = useState<CarrefourProductPrice[]>([])
+  const [sort, setSort] = useState<PriceTableSort>({ key: "percent", direction: "desc" })
+  const [selectedProducts, setSelectedProducts] = useState<Record<string, string>>({})
   const eans = useMemo(() => Array.from(new Set(groups.flatMap(groupEans))), [groups])
   const eanKey = eans.join(",")
 
@@ -25,7 +27,17 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
     }
   }, [eanKey])
 
-  const rows = useMemo(() => buildRows(groups, products), [groups, products])
+  const rows = useMemo(() => buildRows(groups, products, sort), [groups, products, sort])
+  const sortHeader = (label: string, key: SortKey) => (
+    <th aria-sort={sort.key === key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
+      <button className="sortButton" type="button" onClick={() => setSort((current) => ({
+        key,
+        direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+      }))}>
+        {label}{sortArrow(sort, key)}
+      </button>
+    </th>
+  )
   if (rows.length === 0) {
     return (
       <section className="empty tableEmpty">
@@ -42,19 +54,37 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
         <table className="priceTable">
           <thead>
             <tr>
-              <th>Produit</th>
-              <th>Type</th>
-              <th>Prix initial</th>
-              <th>Prix remisé</th>
-              <th>Remise</th>
-              <th>Réduction</th>
-              <th>Lien</th>
+              {sortHeader("Coupon", "groupIndex")}
+              {sortHeader("Produit", "product")}
+              {sortHeader("Type", "benefitType")}
+              {sortHeader("Prix initial", "initialPrice")}
+              {sortHeader("Prix remisé", "discountedPrice")}
+              {sortHeader("Remise", "saving")}
+              {sortHeader("Réduction", "percent")}
+              {sortHeader("Lien", "link")}
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={`${row.groupKey}-${row.product.ean}`}>
-                <td><strong>{row.product.name ?? `EAN ${row.product.ean}`}</strong></td>
+              <tr className={`couponRow couponRow-${row.groupIndex % 2 === 0 ? "even" : "odd"} ${getRowState(row, selectedProducts)}`} key={`${row.groupKey}-${row.product.ean}`}>
+                <td><span className="couponGroupTag">Coupon {row.groupIndex + 1}</span></td>
+                <td>
+                  <button
+                    className="productChoice"
+                    type="button"
+                    aria-pressed={selectedProducts[row.groupKey] === row.product.ean}
+                    title={selectedProducts[row.groupKey] === row.product.ean ? "Annuler le choix pour ce coupon" : "Choisir ce produit pour ce coupon"}
+                    onClick={() => setSelectedProducts((current) => {
+                      const next = { ...current }
+                      if (next[row.groupKey] === row.product.ean) delete next[row.groupKey]
+                      else next[row.groupKey] = row.product.ean
+                      return next
+                    })}
+                  >
+                    <strong>{row.product.name ?? `EAN ${row.product.ean}`}</strong>
+                    {selectedProducts[row.groupKey] === row.product.ean && <span className="productOk">OK</span>}
+                  </button>
+                </td>
                 <td><span className={`benefitBadge ${row.benefitType ?? "unknown"}`}>{couponBenefitLabel(row.benefitType)}</span></td>
                 <td>{formatPrice(row.initialPrice)}</td>
                 <td className="discountedPrice">{formatPrice(row.discountedPrice)}</td>
@@ -72,6 +102,7 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
 
 type PriceRow = {
   groupKey: string
+  groupIndex: number
   product: CarrefourProductPrice
   initialPrice: number
   discountedPrice: number
@@ -80,9 +111,16 @@ type PriceRow = {
   benefitType: ReturnType<typeof couponBenefitType>
 }
 
-function buildRows(groups: CouponGroup[], products: CarrefourProductPrice[]): PriceRow[] {
+type PriceTableSort = {
+  key: SortKey
+  direction: "asc" | "desc"
+}
+
+type SortKey = "groupIndex" | "product" | "benefitType" | "initialPrice" | "discountedPrice" | "saving" | "percent" | "link"
+
+function buildRows(groups: CouponGroup[], products: CarrefourProductPrice[], sort: PriceTableSort): PriceRow[] {
   const productsByEan = new Map(products.map((product) => [product.ean, product]))
-  return groups.flatMap((group) => groupEans(group).flatMap((ean) => {
+  const rows = groups.flatMap((group, groupIndex) => groupEans(group).flatMap((ean) => {
     const product = productsByEan.get(ean)
     const initialPrice = product?.regularPrice ?? product?.price
     if (!product || initialPrice === undefined || initialPrice <= 0) return []
@@ -90,6 +128,7 @@ function buildRows(groups: CouponGroup[], products: CarrefourProductPrice[]): Pr
     const saving = initialPrice - discountedPrice
     return [{
       groupKey: group.key,
+      groupIndex,
       product,
       initialPrice,
       discountedPrice,
@@ -97,7 +136,39 @@ function buildRows(groups: CouponGroup[], products: CarrefourProductPrice[]): Pr
       percent: (saving / initialPrice) * 100,
       benefitType: couponBenefitType(group.representative)
     }]
-  })).sort((a, b) => b.percent - a.percent || b.saving - a.saving)
+  }))
+
+  return rows.sort((a, b) => {
+    const comparison = compareRows(a, b, sort.key)
+    if (comparison !== 0) return sort.direction === "asc" ? comparison : -comparison
+    // Keep products attached to the same coupon together when another column is sorted.
+    return a.groupIndex - b.groupIndex || a.product.ean.localeCompare(b.product.ean)
+  })
+}
+
+function compareRows(a: PriceRow, b: PriceRow, key: SortKey): number {
+  if (key === "groupIndex") return a.groupIndex - b.groupIndex
+  if (key === "product") return (a.product.name ?? a.product.ean).localeCompare(b.product.name ?? b.product.ean, "fr")
+  if (key === "benefitType") return benefitTypeSortValue(a.benefitType).localeCompare(benefitTypeSortValue(b.benefitType), "fr")
+  if (key === "link") return (a.product.productUrl ?? a.product.searchUrl).localeCompare(b.product.productUrl ?? b.product.searchUrl, "fr")
+  if (key === "initialPrice") return a.initialPrice - b.initialPrice
+  if (key === "discountedPrice") return a.discountedPrice - b.discountedPrice
+  if (key === "saving") return a.saving - b.saving
+  return a.percent - b.percent
+}
+
+function benefitTypeSortValue(type: PriceRow["benefitType"]): string {
+  return type === "immediate" ? "1" : type === "wallet" ? "2" : "3"
+}
+
+function getRowState(row: PriceRow, selectedProducts: Record<string, string>): string {
+  const selectedEan = selectedProducts[row.groupKey]
+  if (!selectedEan) return ""
+  return selectedEan === row.product.ean ? "isOk" : "isBlocked"
+}
+
+function sortArrow(sort: PriceTableSort, key: SortKey): string {
+  return sort.key === key ? (sort.direction === "asc" ? " ↑" : " ↓") : " ↕"
 }
 
 function groupEans(group: CouponGroup): string[] {
