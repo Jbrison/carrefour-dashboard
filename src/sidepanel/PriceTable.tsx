@@ -28,6 +28,11 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
   }, [eanKey])
 
   const rows = useMemo(() => buildRows(groups, products, sort), [groups, products, sort])
+  const [benefitFilter, setBenefitFilter] = useState<BenefitFilter>("all")
+  const filteredRows = useMemo(
+    () => benefitFilter === "all" ? rows : rows.filter((row) => row.benefitType === benefitFilter),
+    [benefitFilter, rows]
+  )
   const sortHeader = (label: string, key: SortKey) => (
     <th aria-sort={sort.key === key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
       <button className="sortButton" type="button" onClick={() => setSort((current) => ({
@@ -49,8 +54,18 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
 
   return (
     <section className="priceTableSection" aria-label="Tableau des prix après réduction">
-      <div className="tableSummary">{rows.length} produit{rows.length > 1 ? "s" : ""} avec un prix Carrefour</div>
-      <div className="priceTableScroll">
+      <div className="tableHeader">
+        <div className="tableSummary">{filteredRows.length} produit{filteredRows.length > 1 ? "s" : ""} affiché{filteredRows.length > 1 ? "s" : ""} sur {rows.length}</div>
+        <label className="tableFilter">
+          <span>Type</span>
+          <select value={benefitFilter} onChange={(event) => setBenefitFilter(event.target.value as BenefitFilter)}>
+            <option value="all">Tout</option>
+            <option value="wallet">Cagnotte</option>
+            <option value="immediate">Réduction immédiate</option>
+          </select>
+        </label>
+      </div>
+      {filteredRows.length === 0 ? <p className="tableNoResult">Aucun produit pour ce type de coupon.</p> : <div className="priceTableScroll">
         <table className="priceTable">
           <thead>
             <tr>
@@ -65,10 +80,10 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {filteredRows.map((row) => (
               <tr className={`couponRow couponRow-${row.groupIndex % 2 === 0 ? "even" : "odd"} ${getRowState(row, selectedProducts)}`} key={`${row.groupKey}-${row.product.ean}`}>
                 <td><span className="couponGroupTag">Coupon {row.groupIndex + 1}</span></td>
-                <td>
+                <td className="productCell">
                   <button
                     className="productChoice"
                     type="button"
@@ -95,7 +110,7 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
     </section>
   )
 }
@@ -117,6 +132,7 @@ type PriceTableSort = {
 }
 
 type SortKey = "groupIndex" | "product" | "benefitType" | "initialPrice" | "discountedPrice" | "saving" | "percent" | "link"
+type BenefitFilter = "all" | "wallet" | "immediate"
 
 function buildRows(groups: CouponGroup[], products: CarrefourProductPrice[], sort: PriceTableSort): PriceRow[] {
   const productsByEan = new Map(products.map((product) => [product.ean, product]))
