@@ -74,9 +74,11 @@ export function normalizeConditions(conditions?: string): string {
 }
 
 export function getCouponSignature(coupon: CarrefourCoupon): string {
+  const explicitProduct = normalizeProduct(coupon.product)
+  if (explicitProduct) return [explicitProduct, couponBenefitType(coupon) ?? ""].filter(Boolean).join("|")
+
   const parts = [
     normalizeCouponName(coupon),
-    normalizeDiscount(coupon.discountText, coupon.discountValue, coupon.discountType),
     couponBenefitType(coupon) ?? "",
     normalizeBrand(coupon.brand)
   ].filter(Boolean)

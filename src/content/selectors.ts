@@ -41,5 +41,7 @@ export const COUPON_TEXT_PATTERNS = [
   /\b(?:activer|ajouté|ajoute|coupon|remise|économies|economies|offre fidélité|offre fidelite)\b/i
 ]
 
+export const REAL_CARREFOUR_COUPON_TEXT_PATTERN = /(?:\bplus\s+que\s+\d+\s+jours?\b|\bajout(?:é|e)\b|\béconomies\b|\bde\s+remise\b|\d+(?:[,.]\d+)?\s*\u20ac)/i
+
 export const MIN_COUPON_TEXT_LENGTH = 12
 export const MAX_COUPON_TEXT_LENGTH = 1_500

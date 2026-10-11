@@ -1,7 +1,7 @@
 import type { CarrefourCoupon, CouponBenefitType } from "./coupon-types"
 
 export function detectCouponBenefitType(text: string): CouponBenefitType | undefined {
-  if (/\bd['’]\s*[ée]conomies\b/i.test(text)) return "wallet"
+  if (/(?:\bd['’]\s*économies\b|\bd['â€™]\s*[Ã©e]conomies\b)/i.test(text)) return "wallet"
   if (/\bde\s+remise\b/i.test(text)) return "immediate"
   return undefined
 }

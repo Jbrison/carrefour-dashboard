@@ -3,7 +3,9 @@ import { parseExpirationDate } from "../lib/date-parser"
 import { detectCouponBenefitType } from "../lib/coupon-benefit"
 
 const DISCOUNT_PATTERN = /(?:-|−)?\s*(\d+(?:[,.]\d+)?)\s*(%|€|euros?|eur)(?=\s|$)/i
-const DATE_CONTEXT_PATTERN = /(?:expire(?: le)?|expiration|valable jusqu(?:'|’)?au|jusqu(?:'|’)?au)\s+([^\n.]{3,40})/i
+const DATE_CONTEXT_PATTERN = /(?:expire(?: le)?|expiration|valable jusqu(?:'|’)?au|jusqu(?:'|’)?au)\s+([^\n.]{3,40})|(?:plus\s+que|il\s+reste)\s+\d+\s+jours?/i
+
+const REAL_DISCOUNT_PATTERN = /(?:-|\u2212)?\s*(\d+(?:[,.]\d+)?)\s*(%|\u20ac|euros?|eur)(?=\s|$)/i
 
 export function parseCoupon(element: HTMLElement): CarrefourCoupon | null {
   const rawText = cleanText(element.innerText || element.textContent || "")
@@ -56,7 +58,7 @@ function extractImageUrl(element: HTMLElement): string | undefined {
 }
 
 export function parseDiscount(text: string): Pick<CarrefourCoupon, "discountText" | "discountValue" | "discountType"> | null {
-  const match = text.match(DISCOUNT_PATTERN)
+  const match = text.match(REAL_DISCOUNT_PATTERN) ?? text.match(DISCOUNT_PATTERN)
   if (!match) return null
   const value = Number(match[1].replace(",", "."))
   const unit = match[2].toLocaleLowerCase("fr-FR")

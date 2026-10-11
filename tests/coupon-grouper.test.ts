@@ -12,12 +12,23 @@ describe("groupCoupons", () => {
     expect(groups[0].count).toBe(2)
   })
 
-  it("keeps different discounts separate", () => {
+  it("groups different discount amounts for the same product", () => {
     const groups = groupCoupons([
       coupon("-30% Café Carte Noire", "-30%", 30, "percent"),
       coupon("-20% Café Carte Noire", "-20%", 20, "percent")
     ])
-    expect(groups).toHaveLength(2)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].count).toBe(2)
+  })
+
+  it("groups Amos wallet coupons coming from different tabs", () => {
+    const product = "a valoir sur l'achat d'un paquet de bonbons Amos"
+    const groups = groupCoupons([
+      { ...coupon("0,40 EUR", "0,40 EUR", 0.4, "amount", "Jusqu'au 31 octobre"), product, benefitType: "wallet", sourceList: "purchase" },
+      { ...coupon("0,50 EUR", "0,50 EUR", 0.5, "amount", "Plus que 3 jours"), product, benefitType: "wallet", sourceList: "discount" }
+    ])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].count).toBe(2)
   })
 
   it("groups equivalent euro coupons", () => {

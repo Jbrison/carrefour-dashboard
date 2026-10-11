@@ -11,6 +11,22 @@ describe("parseDiscount", () => {
 })
 
 describe("parseCoupon", () => {
+  it("does not use a relative expiry label as the product name", () => {
+    document.body.innerHTML = `
+      <article>
+        <div>Plus que 3 jours</div>
+        <div>0,50%</div>
+        <div>1 achete = 0,50% d'economies</div>
+        <div>a valoir sur l'achat d'un paquet de bonbons Amos</div>
+        <button>Ajoute</button>
+      </article>`
+
+    const coupon = parseCoupon(document.querySelector("article") as HTMLElement)
+
+    expect(coupon?.product).toContain("bonbons Amos")
+    expect(coupon?.product).not.toContain("Plus que 3 jours")
+  })
+
   it("keeps coupons even when some fields are missing", () => {
     document.body.innerHTML = fixture
     const element = document.querySelector<HTMLElement>("[data-coupon-id='a1']")

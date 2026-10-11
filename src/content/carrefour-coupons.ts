@@ -3,7 +3,7 @@ import type { CarrefourCoupon, CouponAnalysis } from "../lib/coupon-types"
 import { couponSourceFromUrl, loadCoupons, saveCoupons } from "../storage/coupon-storage"
 import { observeCouponChanges } from "./coupon-observer"
 import { extractEans, parseCoupon } from "./coupon-parser"
-import { CARREFOUR_COUPON_STRATEGIES, COUPON_TEXT_PATTERNS, MAX_COUPON_TEXT_LENGTH, MIN_COUPON_TEXT_LENGTH } from "./selectors"
+import { CARREFOUR_COUPON_STRATEGIES, COUPON_TEXT_PATTERNS, MAX_COUPON_TEXT_LENGTH, MIN_COUPON_TEXT_LENGTH, REAL_CARREFOUR_COUPON_TEXT_PATTERN } from "./selectors"
 import type { CarrefourProductPrice } from "../lib/coupon-types"
 import { carrefourAutocompleteUrl, carrefourSearchUrl, parseCarrefourAutocomplete } from "../lib/product-price"
 import { isCouponListComplete } from "./coupon-tab-count"
@@ -351,6 +351,7 @@ function isLikelyCouponElement(element: HTMLElement): boolean {
   const text = (element.innerText || element.textContent || "").trim()
   if (text.length < MIN_COUPON_TEXT_LENGTH || text.length > MAX_COUPON_TEXT_LENGTH) return false
   const patternMatches = COUPON_TEXT_PATTERNS.filter((pattern) => pattern.test(text)).length
+  if (REAL_CARREFOUR_COUPON_TEXT_PATTERN.test(text) && /coupon-card/i.test(element.className)) return true
   return patternMatches >= 2 || (patternMatches >= 1 && /\b(?:activer|coupon|remise)\b/i.test(text))
 }
 
@@ -472,7 +473,7 @@ function start(): void {
 
   registerConditionsClicks()
   registerRuntimeListener()
-  if (sessionStorage.getItem(ANALYSIS_RUNNING_KEY) === "1") void runFullAnalysis()
+  void runFullAnalysis()
 }
 
 async function fetchAutocompletePrices(eans: string[]): Promise<CarrefourProductPrice[]> {
