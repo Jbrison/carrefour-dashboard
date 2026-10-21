@@ -1,5 +1,6 @@
 import type { CarrefourCoupon } from "./coupon-types"
 import { couponBenefitType } from "./coupon-benefit"
+import { couponRequiredQuantity } from "./coupon-quantity"
 
 const EURO_WORDS = /\b(euro|euros|eur)\b/gi
 const SPACED_PERCENT = /(\d+(?:[,.]\d+)?)\s*%/g
@@ -74,13 +75,16 @@ export function normalizeConditions(conditions?: string): string {
 }
 
 export function getCouponSignature(coupon: CarrefourCoupon): string {
+  const requiredQuantity = couponRequiredQuantity(coupon)
+  const quantityPart = requiredQuantity > 1 ? `x${requiredQuantity}` : ""
   const explicitProduct = normalizeProduct(coupon.product)
-  if (explicitProduct) return [explicitProduct, couponBenefitType(coupon) ?? ""].filter(Boolean).join("|")
+  if (explicitProduct) return [explicitProduct, couponBenefitType(coupon) ?? "", quantityPart].filter(Boolean).join("|")
 
   const parts = [
     normalizeCouponName(coupon),
     couponBenefitType(coupon) ?? "",
-    normalizeBrand(coupon.brand)
+    normalizeBrand(coupon.brand),
+    quantityPart
   ].filter(Boolean)
 
   return Array.from(new Set(parts)).join("|")

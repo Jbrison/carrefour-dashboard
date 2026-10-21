@@ -7,6 +7,7 @@ import { CARREFOUR_COUPON_STRATEGIES, COUPON_TEXT_PATTERNS, MAX_COUPON_TEXT_LENG
 import type { CarrefourProductPrice } from "../lib/coupon-types"
 import { carrefourAutocompleteUrl, carrefourSearchUrl, parseCarrefourAutocomplete } from "../lib/product-price"
 import { isCouponListComplete } from "./coupon-tab-count"
+import { getCouponSignature } from "../lib/coupon-normalizer"
 
 const DEBUG = true
 const BADGE_ID = "carrefour-coupon-optimizer-badge"
@@ -418,6 +419,10 @@ function registerRuntimeListener(): void {
         void fetchAutocompletePrices(message.eans).then(sendResponse)
         return true
       }
+      if (isLocateCouponMessage(message)) {
+        void locateCouponCards(message.signatures, message.source, message.occurrence).then(sendResponse)
+        return true
+      }
       return false
     })
   } catch (error) {
@@ -522,6 +527,94 @@ function isAutocompleteFetchMessage(message: unknown): message is { type: "FETCH
   return typeof message === "object" && message !== null && "type" in message &&
     message.type === "FETCH_CARREFOUR_AUTOCOMPLETE" && "eans" in message && Array.isArray(message.eans) &&
     message.eans.length <= 100 && message.eans.every((ean) => /^\d{13}$/.test(ean))
+}
+
+const HIGHLIGHT_ATTRIBUTE = "data-coupon-optimizer-highlight"
+const HIGHLIGHT_STYLE_ID = "carrefour-coupon-optimizer-highlight-style"
+type CouponSource = "purchase" | "discount" | "unknown"
+
+async function locateCouponCards(
+  signatures: string[],
+  source: CouponSource,
+  occurrence: number
+): Promise<{ found: number; source: CouponSource }> {
+  if (source !== "unknown" && currentCouponSource() !== source) await openCouponList(source)
+  const wanted = new Set(signatures)
+  const matches = () => findCouponElements().filter((element) => {
+    const coupon = parseCoupon(element)
+    return coupon !== null && wanted.has(getCouponSignature(coupon))
+  })
+  let cards = matches()
+  const initialY = window.scrollY
+  // Lazy-loaded lists: scroll down a few times when the wanted copy is not rendered yet.
+  for (let round = 0; cards.length <= occurrence && round < 10; round += 1) {
+    const previousHeight = document.documentElement.scrollHeight
+    window.scrollTo({ top: previousHeight, behavior: "auto" })
+    await contentDelay(500)
+    cards = matches()
+    if (cards.length <= occurrence && document.documentElement.scrollHeight === previousHeight) break
+  }
+
+  document.querySelectorAll(`[${HIGHLIGHT_ATTRIBUTE}]`).forEach((element) => element.removeAttribute(HIGHLIGHT_ATTRIBUTE))
+  const target = cards[occurrence]
+  if (!target) {
+    window.scrollTo({ top: initialY, behavior: "auto" })
+    return { found: 0, source: currentCouponSource() }
+  }
+
+  ensureHighlightStyle()
+  cards.forEach((card) => card.setAttribute(HIGHLIGHT_ATTRIBUTE, "match"))
+  target.setAttribute(HIGHLIGHT_ATTRIBUTE, "current")
+  target.scrollIntoView({ block: "center", behavior: "smooth" })
+  findAddButton(target)?.focus({ preventScroll: true })
+  return { found: cards.length, source: currentCouponSource() }
+}
+
+async function openCouponList(source: "purchase" | "discount"): Promise<void> {
+  if (source === "discount") clickDiscountCouponsTab()
+  else clickPurchaseCouponsTab()
+  for (let attempt = 0; attempt < 15 && currentCouponSource() !== source; attempt += 1) {
+    await contentDelay(200)
+  }
+  await contentDelay(300)
+}
+
+function clickPurchaseCouponsTab(): boolean {
+  const input = document.querySelector<HTMLInputElement>('input[type="radio"][value="bons-achat"]')
+  const label = input?.id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(input.id)}"]`) : null
+  const tab = label ?? input ?? Array.from(document.querySelectorAll<HTMLElement>("[role='tab'],button,a,label,.pl-tab"))
+    .find((candidate) => /bons?\s+d['’]achat/i.test(candidate.innerText || candidate.textContent || ""))
+  tab?.click()
+  return tab !== undefined
+}
+
+function findAddButton(card: HTMLElement): HTMLElement | undefined {
+  return Array.from(card.querySelectorAll<HTMLElement>("button,[role='button']"))
+    .find((element) => /^\s*(?:ajouter|activer)\b/i.test(element.innerText || element.textContent || element.getAttribute("aria-label") || ""))
+}
+
+function ensureHighlightStyle(): void {
+  if (document.getElementById(HIGHLIGHT_STYLE_ID)) return
+  const style = document.createElement("style")
+  style.id = HIGHLIGHT_STYLE_ID
+  style.textContent = [
+    `[${HIGHLIGHT_ATTRIBUTE}]{outline:3px solid #1769e0 !important;outline-offset:3px;border-radius:8px;}`,
+    `[${HIGHLIGHT_ATTRIBUTE}='current']{outline-color:#0b5 !important;box-shadow:0 0 0 8px rgba(0,187,85,.18) !important;}`
+  ].join("")
+  document.head.append(style)
+}
+
+function isLocateCouponMessage(message: unknown): message is {
+  type: "LOCATE_COUPON"
+  signatures: string[]
+  source: CouponSource
+  occurrence: number
+} {
+  return typeof message === "object" && message !== null && "type" in message &&
+    message.type === "LOCATE_COUPON" && "signatures" in message && Array.isArray(message.signatures) &&
+    message.signatures.every((signature) => typeof signature === "string") &&
+    "source" in message && (message.source === "purchase" || message.source === "discount" || message.source === "unknown") &&
+    "occurrence" in message && Number.isInteger(message.occurrence) && Number(message.occurrence) >= 0
 }
 
 function startProductReader(): void {

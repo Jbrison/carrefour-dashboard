@@ -1,6 +1,7 @@
 import type { CarrefourProductPrice, CouponGroup as CouponGroupType } from "../lib/coupon-types"
 import { formatExpirationLabel } from "../lib/date-parser"
-import { formatCouponValue, priceAfterCoupons, totalCouponValue } from "../lib/coupon-value"
+import { basketPrice, formatCouponValue, priceAfterCoupons, totalCouponValue } from "../lib/coupon-value"
+import { groupRequiredQuantity } from "../lib/coupon-quantity"
 import { couponBenefitLabel, couponBenefitType } from "../lib/coupon-benefit"
 import { loadProductPrices, PRODUCT_PRICES_KEY, saveProductPrices } from "../storage/product-price-storage"
 import { useEffect, useState } from "react"
@@ -14,6 +15,7 @@ export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupTyp
   const [isLoadingPrices, setIsLoadingPrices] = useState(false)
   const [priceError, setPriceError] = useState<string | null>(null)
   const total = totalCouponValue(group.coupons)
+  const quantity = groupRequiredQuantity(group.coupons)
   const eans = groupEans(group)
   const eanKey = eans.join(",")
 
@@ -44,19 +46,22 @@ export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupTyp
         </div>
         <span className="badge">×{group.count}</span>
       </div>
-      <p className="muted">{group.count} coupon{group.count > 1 ? "s similaires" : " similaire"}</p>
+      <p className="muted">
+        {group.count} coupon{group.count > 1 ? "s similaires" : " similaire"}
+        {quantity > 1 && <> · <span className="quantityBadge">Valable pour {quantity} produits achetés</span></>}
+      </p>
       {group.count > 1 && (
         <div className="valueSummary">
           <span>Valeur unitaire : <strong>{formatCouponValue(coupon)}</strong></span>
           <span>Valeur totale : <strong>{total ?? "non calculable"}</strong></span>
           {prices && bestPricedProduct(prices, group) && (() => {
             const best = bestPricedProduct(prices, group)!
-            const basePrice = best.regularPrice ?? best.price!
+            const basePrice = basketPrice(best.regularPrice ?? best.price!, group.coupons)
             const bestNetPrice = applyAllCoupons(basePrice, group)
             const bestReductionPercent = ((basePrice - bestNetPrice) / basePrice) * 100
             return (
               <span className="bestPrice">
-                Meilleur prix : <strong>{formatPrice(bestNetPrice)}</strong>{" · "}
+                Meilleur prix{quantity > 1 ? ` (${quantity} produits)` : ""} : <strong>{formatPrice(bestNetPrice)}</strong>{" · "}
                 <em>−{formatPercent(bestReductionPercent)}</em>{" · "}
                 <a href={best.productUrl ?? best.searchUrl} target="_blank" rel="noreferrer">EAN {best.ean}</a>
               </span>
@@ -138,7 +143,8 @@ export function CouponGroup({ group, onSavingsPercent }: { group: CouponGroupTyp
 
   function reportSavingsPercent(products: CarrefourProductPrice[]): void {
     const best = bestPricedProduct(products, group)
-    const basePrice = best ? best.regularPrice ?? best.price : undefined
+    const unitPrice = best ? best.regularPrice ?? best.price : undefined
+    const basePrice = unitPrice === undefined ? undefined : basketPrice(unitPrice, group.coupons)
     if (basePrice !== undefined && basePrice > 0) {
       onSavingsPercent(group.key, ((basePrice - applyAllCoupons(basePrice, group)) / basePrice) * 100)
     }
@@ -153,7 +159,8 @@ function PriceResults({ products, group }: { products: CarrefourProductPrice[]; 
   return (
     <div className="priceResults">
       {sorted.map((product) => {
-        const effectivePrice = product.regularPrice ?? product.price
+        const unitPrice = product.regularPrice ?? product.price
+        const effectivePrice = unitPrice === undefined ? undefined : basketPrice(unitPrice, group.coupons)
         const net = effectivePrice === undefined ? undefined : applyAllCoupons(effectivePrice, group)
         const reductionPercent = effectivePrice !== undefined && net !== undefined && effectivePrice > 0
           ? ((effectivePrice - net) / effectivePrice) * 100
@@ -163,7 +170,7 @@ function PriceResults({ products, group }: { products: CarrefourProductPrice[]; 
             <div>
               <strong>{product.name ?? `EAN ${product.ean}`}</strong>
               {effectivePrice !== undefined ? (
-                <span>{formatPrice(effectivePrice)} → <b>{formatPrice(net ?? effectivePrice)}</b>{" · "}<em>−{formatPercent(reductionPercent ?? 0)}</em></span>
+                <span>{groupRequiredQuantity(group.coupons) > 1 && unitPrice !== undefined ? `${groupRequiredQuantity(group.coupons)} × ${formatPrice(unitPrice)} = ` : ""}{formatPrice(effectivePrice)} → <b>{formatPrice(net ?? effectivePrice)}</b>{" · "}<em>−{formatPercent(reductionPercent ?? 0)}</em></span>
               ) : <span>{product.status === "error" ? "Recherche Carrefour indisponible" : "Prix non trouvé"}</span>}
               {product.promotional && <small>Calcul basé sur le prix de base hors promotion</small>}
             </div>
@@ -195,7 +202,7 @@ function applyAllCoupons(price: number, group: CouponGroupType): number {
 
 function netPrice(product: CarrefourProductPrice, group: CouponGroupType): number {
   const price = product.regularPrice ?? product.price
-  return price === undefined ? Number.POSITIVE_INFINITY : applyAllCoupons(price, group)
+  return price === undefined ? Number.POSITIVE_INFINITY : applyAllCoupons(basketPrice(price, group.coupons), group)
 }
 
 function formatPrice(value: number): string {

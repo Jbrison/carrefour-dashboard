@@ -47,6 +47,34 @@ describe("groupCoupons", () => {
 
     expect(groups).toHaveLength(2)
   })
+
+  it("groups the same Carrefour product across coupon lists despite different discounts", () => {
+    const groups = groupCoupons([
+      {
+        ...coupon("à valoir sur l'achat d'une boisson Dr Pepper", "0,30 €", 0.3, "amount"),
+        benefitType: "immediate",
+        sourceList: "purchase"
+      },
+      {
+        ...coupon("à valoir sur l'achat d'une boisson Dr Pepper", "0,40 €", 0.4, "amount"),
+        benefitType: "immediate",
+        sourceList: "discount"
+      }
+    ])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].count).toBe(2)
+  })
+
+  it("recognizes identical immediate-remise products when list metadata is unavailable", () => {
+    const groups = groupCoupons([
+      couponWithBenefit("à valoir sur l'achat d'une boisson Dr Pepper", "0,30 €", 0.3),
+      couponWithBenefit("à valoir sur l'achat d'une boisson Dr Pepper", "0,40 €", 0.4)
+    ])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].count).toBe(2)
+  })
 })
 
 function coupon(
@@ -65,4 +93,8 @@ function coupon(
     expirationDate,
     rawText: [title, expirationDate].filter(Boolean).join(" ")
   }
+}
+
+function couponWithBenefit(title: string, discountText: string, discountValue: number): CarrefourCoupon {
+  return { ...coupon(title, discountText, discountValue, "amount"), benefitType: "immediate" }
 }

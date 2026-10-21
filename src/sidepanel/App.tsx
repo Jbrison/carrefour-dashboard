@@ -2,7 +2,7 @@ import { ExternalLink, RefreshCw, RotateCcw, Search } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { CouponAnalysis, CouponGroup } from "../lib/coupon-types"
 import { daysUntilExpiration, parseExpirationDate } from "../lib/date-parser"
-import { priceAfterCoupons } from "../lib/coupon-value"
+import { basketPrice, priceAfterCoupons } from "../lib/coupon-value"
 import { clearCoupons, emptyDiagnostics, loadCoupons, loadPreferences, savePreferences, type CouponPreferences } from "../storage/coupon-storage"
 import { clearProductPrices, loadProductPrices, saveProductPrices } from "../storage/product-price-storage"
 import type { CarrefourProductPrice } from "../lib/coupon-types"
@@ -118,7 +118,8 @@ export function App() {
             .map((ean) => productsByEan.get(ean))
             .filter((product): product is CarrefourProductPrice => product?.price !== undefined || product?.regularPrice !== undefined)
           const best = candidates.sort((a, b) => discountedPrice(a, group) - discountedPrice(b, group))[0]
-          const basePrice = best ? best.regularPrice ?? best.price : undefined
+          const unitPrice = best ? best.regularPrice ?? best.price : undefined
+          const basePrice = unitPrice === undefined ? undefined : basketPrice(unitPrice, group.coupons)
           if (basePrice !== undefined && basePrice > 0) {
             next[group.key] = ((basePrice - priceAfterCoupons(basePrice, group.coupons)) / basePrice) * 100
           }
@@ -283,7 +284,7 @@ function groupEans(group: CouponGroup): string[] {
 
 function discountedPrice(product: CarrefourProductPrice, group: CouponGroup): number {
   const price = product.regularPrice ?? product.price
-  return price === undefined ? Number.POSITIVE_INFINITY : priceAfterCoupons(price, group.coupons)
+  return price === undefined ? Number.POSITIVE_INFINITY : priceAfterCoupons(basketPrice(price, group.coupons), group.coupons)
 }
 
 function firstExpiration(group: CouponGroup): number {

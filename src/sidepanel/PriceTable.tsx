@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
 import type { CarrefourProductPrice, CouponGroup } from "../lib/coupon-types"
-import { priceAfterCoupons } from "../lib/coupon-value"
+import { basketPrice, priceAfterCoupons } from "../lib/coupon-value"
+import { groupRequiredQuantity } from "../lib/coupon-quantity"
 import { couponBenefitLabel, couponBenefitType } from "../lib/coupon-benefit"
+import { getCouponSignature } from "../lib/coupon-normalizer"
 import { loadProductPrices, PRODUCT_PRICES_KEY } from "../storage/product-price-storage"
+
+const CARREFOUR_COUPONS_URL = "https://www.carrefour.fr/mon-compte/fidelite/mes-coupons"
 
 export function PriceTable({ groups }: { groups: CouponGroup[] }) {
   const [products, setProducts] = useState<CarrefourProductPrice[]>([])
   const [sort, setSort] = useState<PriceTableSort>({ key: "percent", direction: "desc" })
   const [selectedProducts, setSelectedProducts] = useState<Record<string, string>>({})
+  const [locateMessage, setLocateMessage] = useState<string | null>(null)
   const eans = useMemo(() => Array.from(new Set(groups.flatMap(groupEans))), [groups])
   const eanKey = eans.join(",")
 
@@ -33,6 +38,17 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
     () => benefitFilter === "all" ? rows : rows.filter((row) => row.benefitType === benefitFilter),
     [benefitFilter, rows]
   )
+  const groupsByKey = useMemo(() => new Map(groups.map((group) => [group.key, group])), [groups])
+  const locateCoupon = async (groupKey: string, groupIndex: number, copyIndex: number) => {
+    const group = groupsByKey.get(groupKey)
+    if (!group) return
+    setLocateMessage(null)
+    try {
+      setLocateMessage(await locateCouponOnPage(group, groupIndex, copyIndex))
+    } catch {
+      setLocateMessage("Impossible de contacter la page Carrefour. Recharge l’onglet « Mes coupons ».")
+    }
+  }
   const sortHeader = (label: string, key: SortKey) => (
     <th aria-sort={sort.key === key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
       <button className="sortButton" type="button" onClick={() => setSort((current) => ({
@@ -65,6 +81,7 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
           </select>
         </label>
       </div>
+      {locateMessage && <p className="locateMessage" role="status">{locateMessage}</p>}
       {filteredRows.length === 0 ? <p className="tableNoResult">Aucun produit pour ce type de coupon.</p> : <div className="priceTableScroll">
         <table className="priceTable">
           <thead>
@@ -82,7 +99,23 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
           <tbody>
             {filteredRows.map((row) => (
               <tr className={`couponRow couponRow-${row.groupIndex % 2 === 0 ? "even" : "odd"} ${getRowState(row, selectedProducts)}`} key={`${row.groupKey}-${row.product.ean}`}>
-                <td><span className="couponGroupTag">Coupon {row.groupIndex + 1}</span></td>
+                <td className="couponCell">
+                  <span className="couponGroupTag">Coupon {row.groupIndex + 1}</span>
+                  {row.quantity > 1 && <span className="quantityBadge" title={`Remise valable pour l’achat de ${row.quantity} produits`}>{row.quantity} produits</span>}
+                  <div className="locateLinks">
+                    {groupsByKey.get(row.groupKey)?.coupons.map((coupon, copyIndex) => (
+                      <button
+                        className="locateButton"
+                        type="button"
+                        key={copyIndex}
+                        title={`Afficher l’exemplaire ${copyIndex + 1}${coupon.sourceList && coupon.sourceList !== "unknown" ? ` (${sourceLabel(coupon.sourceList)})` : ""} sur la page Carrefour pour l’ajouter`}
+                        onClick={() => void locateCoupon(row.groupKey, row.groupIndex, copyIndex)}
+                      >
+                        {copyIndex === 0 ? "Localiser " : ""}{copyIndex + 1}
+                      </button>
+                    ))}
+                  </div>
+                </td>
                 <td className="productCell">
                   <button
                     className="productChoice"
@@ -101,7 +134,10 @@ export function PriceTable({ groups }: { groups: CouponGroup[] }) {
                   </button>
                 </td>
                 <td><span className={`benefitBadge ${row.benefitType ?? "unknown"}`}>{couponBenefitLabel(row.benefitType)}</span></td>
-                <td>{formatPrice(row.initialPrice)}</td>
+                <td>
+                  {formatPrice(row.initialPrice)}
+                  {row.quantity > 1 && <small className="quantityHint">{row.quantity} × {formatPrice(row.unitPrice)}</small>}
+                </td>
                 <td className="discountedPrice">{formatPrice(row.discountedPrice)}</td>
                 <td>{formatPrice(row.saving)}</td>
                 <td className="discountPercent">−{formatPercent(row.percent)}</td>
@@ -119,6 +155,8 @@ type PriceRow = {
   groupKey: string
   groupIndex: number
   product: CarrefourProductPrice
+  quantity: number
+  unitPrice: number
   initialPrice: number
   discountedPrice: number
   saving: number
@@ -138,14 +176,18 @@ function buildRows(groups: CouponGroup[], products: CarrefourProductPrice[], sor
   const productsByEan = new Map(products.map((product) => [product.ean, product]))
   const rows = groups.flatMap((group, groupIndex) => groupEans(group).flatMap((ean) => {
     const product = productsByEan.get(ean)
-    const initialPrice = product?.regularPrice ?? product?.price
-    if (!product || initialPrice === undefined || initialPrice <= 0) return []
+    const unitPrice = product?.regularPrice ?? product?.price
+    if (!product || unitPrice === undefined || unitPrice <= 0) return []
+    const quantity = groupRequiredQuantity(group.coupons)
+    const initialPrice = basketPrice(unitPrice, group.coupons)
     const discountedPrice = priceAfterCoupons(initialPrice, group.coupons)
     const saving = initialPrice - discountedPrice
     return [{
       groupKey: group.key,
       groupIndex,
       product,
+      quantity,
+      unitPrice,
       initialPrice,
       discountedPrice,
       saving,
@@ -181,6 +223,35 @@ function getRowState(row: PriceRow, selectedProducts: Record<string, string>): s
   const selectedEan = selectedProducts[row.groupKey]
   if (!selectedEan) return ""
   return selectedEan === row.product.ean ? "isOk" : "isBlocked"
+}
+
+async function locateCouponOnPage(group: CouponGroup, groupIndex: number, copyIndex: number): Promise<string> {
+  const tabs = await chrome.tabs.query({ currentWindow: true, url: `${CARREFOUR_COUPONS_URL}*` })
+  const tab = tabs.find((candidate) => candidate.active) ?? tabs[0]
+  if (tab?.id === undefined) return "Ouvre la page « Mes coupons » Carrefour pour localiser ce coupon."
+  if (!tab.active) await chrome.tabs.update(tab.id, { active: true })
+  const coupon = group.coupons[copyIndex]
+  const source = coupon.sourceList ?? "unknown"
+  // Copies are stored in page order, so the n-th copy of a list is the n-th matching card on that list.
+  const occurrence = group.coupons.slice(0, copyIndex).filter((candidate) => (candidate.sourceList ?? "unknown") === source).length
+  const signatures = Array.from(new Set(group.coupons.map(getCouponSignature)))
+  const result: unknown = await chrome.tabs.sendMessage(tab.id, { type: "LOCATE_COUPON", signatures, source, occurrence })
+  if (!isLocateResult(result)) throw new Error("Réponse invalide")
+  const label = `Coupon ${groupIndex + 1} · exemplaire ${copyIndex + 1}/${group.coupons.length}`
+  const where = source !== "unknown" ? ` (${sourceLabel(source)})` : ""
+  return result.found === 0
+    ? `${label}${where} introuvable sur la page.`
+    : `${label}${where} mis en évidence sur la page.`
+}
+
+function sourceLabel(source: "purchase" | "discount"): string {
+  return source === "purchase" ? "bons d’achat" : "bons de réduction"
+}
+
+function isLocateResult(value: unknown): value is { found: number; source: string } {
+  return typeof value === "object" && value !== null &&
+    "found" in value && typeof value.found === "number" &&
+    "source" in value && typeof value.source === "string"
 }
 
 function sortArrow(sort: PriceTableSort, key: SortKey): string {

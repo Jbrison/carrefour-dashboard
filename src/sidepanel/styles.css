@@ -294,6 +294,14 @@ select {
 .priceTable tbody tr.couponRow-even td:first-child { border-left: 3px solid #087443; }
 .priceTable tbody tr.couponRow-odd td:first-child { border-left: 3px solid #1769e0; }
 .couponGroupTag { display: inline-block; min-width: 58px; padding: 3px 6px; border-radius: 5px; background: #e7f7ee; color: #087443; font-size: 10px; font-weight: 800; text-align: center; }
+.couponCell { white-space: nowrap; }
+.quantityBadge { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 5px; background: #fff4d6; color: #8a5a00; font-size: 10px; font-weight: 800; }
+.couponCell .quantityBadge { display: block; width: fit-content; }
+.quantityHint { display: block; color: #667085; font-size: 10px; }
+.locateLinks { display: flex; gap: 6px; margin-top: 4px; }
+.locateButton { border: 0; padding: 0; background: transparent; color: #1769e0; font-size: 11px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.locateButton:hover, .locateButton:focus-visible { color: #087443; }
+.locateMessage { margin: 0 0 8px; color: #155a9c; font-size: 12px; }
 .couponRow-odd .couponGroupTag { background: #e8f1ff; color: #155a9c; }
 .priceTable tbody tr.isBlocked { opacity: .42; }
 .priceTable tbody tr.isOk { background: #effaf3; }
